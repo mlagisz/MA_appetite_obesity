@@ -1,0 +1,1362 @@
+R script for:
+Transgenerational effects of maternal obesogenic diet on appetite: a meta-analysis  
+========================================================
+
+Step 2 - Exploratory analyses  
+--------------------
+
+```{r start, echo=FALSE, message=FALSE, eval=TRUE, include=FALSE}
+options(scipen=100)
+
+#getRversion() #3.1.1
+
+install.packages(c("ProjectTemplate", "knitr", "MCMCglmm", "metafor", "rmeta", "meta", "xtable",  "arm", "ade4", "psych","orthopolynom"))
+
+library('ProjectTemplate')
+
+#create.project('R_OB_analyses')#use once to initiate
+
+load.project()
+
+#project.info$data
+
+library(xtable)
+library(meta)
+library(psych)
+library(lattice)
+
+#library(metafor)
+#library(MCMCglmm)
+
+load("data_NC.RData") 
+load("data.RData") 
+```
+
+Preprocessed data based on he raw data: raw_main_data_20140815_OB.csv and raw_diet_data_20140815_OB.csv
+
+Preprocessing done so far:  
+* Removed records where dams were on both nutrient manipulation and caloric restriction.  
+* Removed records for offspring on self-selected diets (altered food preferences could bias total intake).  
+* Aggregated time series-type data by ES_ID.  
+* Merged with diet information dataframe, for dam and offspring diets.  
+* Calculated effect sizes for 4 outcomes: BW, AI, RI, RI2.  
+
+
+```{r data summary, echo=FALSE, eval=TRUE, include=FALSE}
+length(unique(data$Study_ID)) # 53 studies (was 27 before update)
+length(unique(data$Exp_ID)) # 61 experments
+table(data$Offspr_sex) # F 35, FM 12, M 69
+table(data$animal) #mouse 27, rat 89
+table(data$Strain) 
+# C57BL/6       C57BL/6J            FVB            ICR     Long-Evans           NMRI Sprague-Dawley         Wistar 
+#     5             12              2              6              6              2             46             37 
+table(data$Dam_choice_diet) # 69 - 0, 47 - 1
+table(data$Dam_diet_lactation_incl) # 23 gestation only, 93 gestation+lactation
+table(data$Dam_choice_diet,data$Dam_diet_lactation_incl) # 10, 59, 13, 34 - ok
+table(data$Litter_size_equalized) #  7 NA,  12 no, 97 yes 
+```
+
+Studies included in the final obesogenic dataset: total `r nrow(data)` ES (was 57 ES before update) from `r length(unique(data$Study_ID))` studies (was 27), representing `r length(unique(data$Exp_ID))`separate experiments.  
+
+* By sex: `r table(data$Offspr_sex)`  
+* By species: `r table(data$animal)`  
+* By strain: `r table(data$Strain)`  
+* By dam choice diet: `r table(data$Dam_choice_diet)`  
+* By lactation included in treatment: `r table(data$Dam_diet_lactation_incl)`  
+
+Table of ES by species/strain  
+-------------------------------
+
+```{r strains table, results='asis', echo=FALSE}
+
+### STRAINS TABLE - collapse dataset to the strain level
+#table(data$Study_ID, data$Strain)
+countStrains <- sapply(tapply(data$ES_ID, data$Strain, unique), length) 
+#countS #4 strains: C57BL/6J - 2, Long-Evans - 4, Sprague-Dawley - 26, Wistar - 25
+tabStrains <- cbind(data[match(names(countStrains),data$Strain),"animal"],countStrains)
+print(xtable(tabStrains), type='html') #display in markdown
+#kable(xtable(tabStrains), format = "markdown") #test generic function in kntr1.5
+write.csv(tabStrains,"OB_strains_table.csv") #save as .csv
+#write.table(print.xtable(xtable(tabStrains),type="html",caption.placement="top"),file="OB_strains_table.html") #save as .html
+```
+
+Table of included studies  
+----------------------------
+
+```{r studies table, results='asis', echo=FALSE, eval=TRUE, include=FALSE}
+### PAPERS TABLE - collapse dataset the to paper level
+countES <- sapply(tapply(data$ES_ID, data$Study_ID, unique), length) 
+countES #1-4 ES per study, usually 1 or 2
+tab <- cbind(data[match(names(countES),data$Study_ID),c("Study_ID","First_author","Year","animal","Strain")],countES) 
+tab
+#table(data$Study_ID,data$Offspr_sex)  #check if diff sexes from the same study reported - sometimes yes
+#sapply(tapply(data$Exp_ID, data$Study_ID, unique), length) #1-4 experiments per study, but usually 1
+#sapply(tapply(data$ES_ID, data$Exp_ID, unique), length) #1-4 ES per experiment, but usually 1
+
+#aggregate by Study ID concatenating values for "Original_measur_units","Dam_choice_diet","Offspr_choice_diet","Offspr_sex":
+tab2 <- cbind(tab, aggregate(Original_measur_units ~ Study_ID, data = data, FUN=function(x) paste(unique(x), collapse = ","))[,2], aggregate(Dam_choice_diet ~ Study_ID, data = data, FUN=function(x) paste(unique(x), collapse = ","))[,2], aggregate(Offspr_sex ~ Study_ID, data = data, FUN=function(x) paste(unique(x), collapse = ","))[,2])
+names(tab2) <- c(names(tab2)[1:3],"Species","Strain","N of ES","Original_measur_units","Dam_choice_diet","Offspr_sex") #rename columns
+tab2 <- tab2[order(tab2$Species,tab2$Strain), ] #order by species and strain
+rownames(tab2) <- NULL
+print(xtable(tab2), type='html') #display in markdown
+#kable(xtable(tab2), format = "markdown") #test generic function in kntr1.5
+write.csv(tab2,"OB_papers_table.csv") #save as .csv
+#write.table(print.xtable(xtable(tab2),type="html",caption.placement="top"),file="OB_papers_table.html") #save as .html
+
+#ES with missing data on dam diet composition
+dim(data[which(is.na(data$Dam_diet_exp_E)),]) #24 effect sizes lack experimental diet composition data (these are all choice diets) out of 46 ES with choice diets (average composition extracted)
+#Note:  should not use diet composition from choice diets as covariate in models, as many values missing or very crude!
+```
+
+Papers table - second version
+Include: Species,  Strain,	Reference,	Source of data for effect size, diet type, N E.S.
+```{r studies table2, results='asis', echo=FALSE, eval=TRUE, include=FALSE}
+
+tab3 <- cbind(data[match(names(countES),data$Study_ID),c("First_author","Year","Study_ID","animal","Strain","Dam_choice_diet","Offspr_data_source")],countES) 
+tab3 <- tab3[!is.na(tab3$Year),] #remove empty rows
+tab3$Reference <- paste(tab3$First_author,tab3$Year) #paste togather First author and year
+tab3 <- tab3[,-(1:3)] #remove first 3 columns
+tab3$Dam_choice_diet <- ifelse(tab3$Dam_choice_diet==1,"choice","chow")
+names(tab3) <- c("Species","Strain","Dam diet type","Data source","N of ES","Reference") #rename columns
+tab3 <- tab3[order(tab3$Species,tab3$Strain), ] #order by species and strain
+rownames(tab3) <- NULL
+
+#print(xtable(tab3), type='html') #display in markdown
+#kable(xtable(tab3), format = "markdown") #test generic function in kntr1.5
+write.csv(tab3,"OB_papers_table2.csv") #save as .csv
+#write.table(print.xtable(xtable(tab3),type="html",caption.placement="top"),file="OB_papers_table2.html") #save as .html
+
+```
+*******
+
+Explore diet properties in the chow (no-choice) data subset  
+----------------------------------------------------------
+Summary of the chow diet subset.  
+```{r chow diets subset, echo=FALSE, eval=TRUE, include=FALSE}
+#create chow diet (no-choice) data subset
+data_chow <- data[data$Dam_choice_diet == "0",] #69 ES
+#data_chow <- subset(data_chow, Dam_choice_diet=="0")
+
+table(data_chow$Offspr_sex) # F 19, FM 1, M 47 - exclude FM as only 1 ES left!
+length(unique(data_chow$Study_ID)) # 31 studies
+length(unique(data_chow$Exp_ID)) # 38 experments
+table(data_chow$Offspr_sex) # F 19, FM 1, M 49
+table(data_chow$animal) #mouse 20, rat 49
+table(data_chow$Strain) #8 strains
+table(data_chow$Dam_diet_lactation_incl) # 10 gestation only, 59 gestation+lactation
+#data_chow68 <- subset(data_chow, Offspr_sex!="FM") #68 ES - for analyses with offspring sex moderator!
+#write.csv(data_chow,"NM_overfeeding_NCsubset.csv")
+#data_chow <- read.csv("NM_overfeeding_NCsubset.csv")
+```
+
+Studies included in the final obesogenic chow diet data subset: total `r nrow(data_chow)` ES from `r length(unique(data_chow$Study_ID))` studies, representing `r length(unique(data_chow$Exp_ID))`separate experiments.  
+
+* By sex: `r table(data_chow$Offspr_sex)`  
+* By species: `r table(data_chow$animal)`  
+* By strain: `r table(data_chow$Strain)`  
+* By lactation included in treatment: `r table(data_chow$Dam_diet_lactation_incl)`  
+
+
+Explore diets in chow diet data subset  
+```{r chow diets summary, echo=FALSE, eval=TRUE, include=FALSE}
+#fat content in experimental diet
+dim(data_chow[which(data_chow$Dam_diet_exp_fatE - data_chow$Dam_diet_contr_fatE > 10),]) #65 out of 69 ES use increased fat content (10% more energy in treatment group than in control group)
+dim(data_chow[which(data_chow$Dam_diet_exp_fatE - data_chow$Dam_diet_contr_fatE < -10),]) #2 out of 69 ES use decreased fat content (10% more energy in treatment group than in control group)
+
+dim(data_chow[which(data_chow$Dam_diet_exp_carbE - data_chow$Dam_diet_contr_carbE > 10),]) #2 out of 69 ES use increased carbs content (10% more energy in treatment group than in control group)
+dim(data_chow[which(data_chow$Dam_diet_exp_carbE - data_chow$Dam_diet_contr_carbE < -10),]) #65 out of 69 ES use decreased carbs content (10% more energy in treatment group than in control group)
+
+dim(data_chow[which(data_chow$Dam_diet_exp_protE - data_chow$Dam_diet_contr_protE > 10),]) #0 out of 69 ES use increased prots content (10% more energy in treatment group than in control group)
+dim(data_chow[which(data_chow$Dam_diet_exp_protE - data_chow$Dam_diet_contr_protE < -10),]) #11 out of 69 ES use decreased prots content (10% more energy in treatment group than in control group)
+
+
+hist(data_chow$Dam_diet_contr_fatE) #fat usually 10-15%E
+hist(data_chow$Dam_diet_contr_carbE) #carbs usually 50-75%E
+hist(data_chow$Dam_diet_contr_protE) #prots usually 15-30%E
+hist(data_chow$Dam_diet_exp_fatE) #fat usually 40-70%E
+hist(data_chow$Dam_diet_exp_carbE) #carbs usually 10-40%E
+hist(data_chow$Dam_diet_exp_protE) #prots usually 15-22%E
+hist(data_chow$Dam_diet_exp_fatE - data_chow$Dam_diet_contr_fatE) #usually fat increased by approx. 30%E
+hist(data_chow$Dam_diet_exp_carbE - data_chow$Dam_diet_contr_carbE) #usually carbs reduced by approx. 30%E
+hist(data_chow$Dam_diet_exp_protE - data_chow$Dam_diet_contr_protE) #protein content same or reduced by approx 10%E 
+
+
+#Kozak 2000, 2005, Couvreur 2011 - high carb diets, lower fats in exp. dam groups - remove for sensitivity analyses
+dim(data_chow[which(data_chow$Dam_diet_exp_fatE - data_chow$Dam_diet_contr_fatE <= 10),]) #4 out of 69 ES do not use increased fat content 
+data_chow[which(data_chow$Dam_diet_exp_E - data_chow$Dam_diet_contr_E < 0),] #2 also have E lower in exp. group than in contr. dams diets
+data_chow[which(data_chow$Dam_diet_exp_fatE > 70),] #2 ES (Kozak 2000, Kozak 2005) have more than 70% of energy from fat 
+
+#check dam-offspring diet mismatch (included only offspring on show diets!)
+dim(data_chow[which(data_chow$Offspr_diet_E - data_chow$Dam_diet_contr_E == 0),]) #47 ES offspring on same E diet as control dams
+dim(data_chow[which(data_chow$Offspr_diet_E - data_chow$Dam_diet_contr_E < 0),]) #8 ES offspring on lower E diet than control dams
+dim(data_chow[which(data_chow$Offspr_diet_E - data_chow$Dam_diet_contr_E <= 0),]) #55 ES offspring on same or lower E diet than control dams (47+8)
+
+dim(data_chow[which(data_chow$Offspr_diet_E - data_chow$Dam_diet_contr_E > 0),]) #14 ES offspring on higher E diet than control dams
+dim(data_chow[which(data_chow$Offspr_diet_E - data_chow$Dam_diet_exp_E == 0),]) #11 ES offspring on same E diet as exp dams (from 14 above)
+
+#make new column - whether offspring was on obesogenic diet (higher E than control dams)
+#data_chow$Offspr_diet_OB <- (data_chow$Offspr_diet_E - data_chow$Dam_diet_contr_E > 0) #19 TRUE #line moved to preprocessing script!
+```
+
+Out of `r nrow(data_chow)` ES, `r dim(data_chow[which(data_chow$Dam_diet_exp_fatE - data_chow$Dam_diet_contr_fatE > 10),])[1]` used high-fat diets, `r dim(data_chow[which(data_chow$Dam_diet_exp_fatE - data_chow$Dam_diet_contr_fatE <= 10),])[1]` high-carb diets. No missing data.  
+
+# Plot dam and offspring diets characteristics in the chow (no-choice) data set.
+```{r chow diets subset hist, fig.width=8, fig.height=11, echo=FALSE, eval=TRUE, include=FALSE}
+#pdf(file="graphs/Rplot_chow_diets_hist.pdf",width=9,height=11,family="sans",pointsize=12)
+par(mfcol=c(5,4),mar=c(5,4,1,1.75),oma=c(1,1,0,0))
+#control dam diets
+hist(data_chow$Dam_diet_contr_E, xlim=c(2,8), ylim=c(0,60), breaks=seq(2,8,0.5), main="Control dam diets", xlab="total energy [kcal/g]") #E usually 3-4 kcal/g
+hist(data_chow$Dam_diet_contr_fatE, xlim=c(0,100), ylim=c(0,60), breaks=seq(0,100,10), main="", xlab="fats [%E]") #fat usually 10-15%E
+hist(data_chow$Dam_diet_contr_carbE, xlim=c(0,100), ylim=c(0,60), breaks=seq(0,100,10), main="", xlab="carbs [%E]") #carbs usually 50-75%E
+hist(data_chow$Dam_diet_contr_protE, xlim=c(0,100), ylim=c(0,60), breaks=seq(0,100,10), main="", xlab="proteins [%E]") #prots usually 15-30%E
+hist(data_chow$Dam_diet_contr_PNP_kcal, xlim=c(0,1), ylim=c(0,60), breaks=seq(0,1,0.05), main="", xlab="P:NP ratio") #PNP usually 
+#experimental dam diets
+hist(data_chow$Dam_diet_exp_E, xlim=c(2,8), ylim=c(0,60), breaks=seq(2,8,0.5), main="Experimental dam diets", xlab="total energy [kcal/g]", ylab="") #E usually 4-6 kcal/g
+hist(data_chow$Dam_diet_exp_fatE, xlim=c(0,100), ylim=c(0,60), breaks=seq(0,100,10), main="", xlab="fats [%E]", ylab="") #fat usually 40-70%E
+hist(data_chow$Dam_diet_exp_carbE, xlim=c(0,100), ylim=c(0,60), breaks=seq(0,100,10), main="", xlab="carbs [%E]", ylab="") #carbs usually 10-40%E
+hist(data_chow$Dam_diet_exp_protE, xlim=c(0,100), ylim=c(0,60), breaks=seq(0,100,10), main="", xlab="proteins [%E]", ylab="") #prots usually 15-22%E
+hist(data_chow$Dam_diet_exp_PNP_kcal, xlim=c(0,1), ylim=c(0,60), breaks=seq(0,1,0.05), main="", xlab="P:NP ratio", ylab="") #PNP usually 
+#difference exp-control dam diets
+hist(data_chow$Dam_diet_exp_E - data_chow$Dam_diet_contr_E, xlim=c(-4,4), ylim=c(0,60), breaks=seq(-4,4,0.5), main="Control-Experimental", xlab="total energy [kcal/g]", ylab="") #E usually increased by 1-2 kcl/g
+hist(data_chow$Dam_diet_exp_fatE - data_chow$Dam_diet_contr_fatE, xlim=c(-60,60), ylim=c(0,60), breaks=seq(-60,60,10), main="", xlab="fats [%E]", ylab="") #usually fat increased by approx. 30%E
+hist(data_chow$Dam_diet_exp_carbE - data_chow$Dam_diet_contr_carbE, xlim=c(-60,60), ylim=c(0,60), breaks=seq(-60,60,10), main="", xlab="carbs [%E]", ylab="") #usually carbs reduced by approx. 30%E
+hist(data_chow$Dam_diet_exp_protE - data_chow$Dam_diet_contr_protE, xlim=c(-60,60), ylim=c(0,60), breaks=seq(-60,60,10), main="", xlab="proteins [%E]", ylab="") #protein content same or reduced by approx 10%E 
+hist(data_chow$Dam_diet_exp_PNP_kcal - data_chow$Dam_diet_contr_PNP_kcal, xlim=c(-1,1), ylim=c(0,60), breaks=seq(-1,1,0.1), main="", xlab="P:NP ratio", ylab="") #PNP usually 
+#offspring diets
+hist(data_chow$Offspr_diet_E, xlim=c(2,8), ylim=c(0,60), breaks=seq(2,8,0.5), main="Offspring diets", xlab="total energy [kcal/g]", ylab="") #E usually 3-4 kcal/g
+hist(data_chow$Offspr_diet_fatE, xlim=c(0,100), ylim=c(0,60), breaks=seq(0,100,10), main="", xlab="fats [%E]", ylab="") #fat usually 10-15%E
+hist(data_chow$Offspr_diet_carbE, xlim=c(0,100), ylim=c(0,60), breaks=seq(0,100,10), main="", xlab="carbs [%E]", ylab="") #carbs usually 50-75%E
+hist(data_chow$Offspr_diet_protE, xlim=c(0,100), ylim=c(0,60), breaks=seq(0,100,10), main="", xlab="proteins [%E]", ylab="") #prots usually 15-30%E
+hist(data_chow$Offspr_diet_PNP_kcal, xlim=c(0,1), ylim=c(0,60), breaks=seq(0,1,0.05), main="", xlab="P:NP ratio", ylab="") #PNP usually 
+#dev.off()
+```
+
+# Plot offspring diets characteristics in the full data set.
+```{r offspr chow diets all data , fig.width=8, fig.height=6, echo=FALSE}
+#vectors of unique control,experimental and offspring diet codes
+#c.diets <- as.vector(unique(data$Dam_diet_code_contr)) # 28
+#e.diets <- as.vector(unique(data$Dam_diet_code_exp)) # 33
+#o.diets <- as.vector(unique(data$Offspr_diet_code)) # 35
+
+#pdf(file="graphs/Rplot_dam_offspr_diets_hist.pdf",width=8,height=6,family="sans",pointsize=10)
+par(mfrow=c(3,2),mar=c(5,4,1,1.75),oma=c(1,1,0,0))
+hist(data$Offspr_diet_E, xlim=c(2,8), ylim=c(0,80), breaks=seq(2,8,0.5), main="Offspring diet - full data set", xlab="total energy [kcal/g]")
+hist(data$Offspr_diet_fatE, xlim=c(0,100), ylim=c(0,80), breaks=seq(0,100,10), main="", xlab="fats [%E]") 
+hist(data$Offspr_diet_carbE, xlim=c(0,100), ylim=c(0,80), breaks=seq(0,100,10), main="", xlab="carbs [%E]") 
+hist(data$Offspr_diet_protE, xlim=c(0,100), ylim=c(0,80), breaks=seq(0,100,10), main="", xlab="proteins [%E]") 
+hist(data$Offspr_diet_PNP_kcal, xlim=c(0,1), ylim=c(0,80), breaks=seq(0,1,0.05), main="", xlab="P:NP ratio")
+#dev.off()
+```
+Mostly same as control diets, but few on obesogenic diets (consider excluding for senesitivity analysis).
+
+
+Dam diet properties arrow plots:  
+--------------------------
+# 2 panel plot for dams only (use in the main text) for the chow (no-choice) subset.
+
+```{r diets arrow 2 plots, fig.width=8, fig.height=9, echo=FALSE, eval=TRUE, include=TRUE}
+
+#pdf(file="Rplot_dam_diets_arrows_main.pdf",width=7,height=8,family="sans", pointsize=10)
+#pdf(file="Rplot_dam_diets_arrows_main.pdf",paper="a4",family="sans",pointsize=8)
+
+par(mfrow=c(2,1),mar=c(4,4,1,1.75),oma=c(1,1,0,0))
+
+### PLOT A
+#plot dam diets as total energy vs. PNP_ratio, with arrows linking control and experimental dams
+plot(data_chow$Dam_diet_contr_PNP_kcal,data_chow$Dam_diet_contr_E,xlim=c(0,1),ylim=c(2,7),xlab="diet P:NP [kcal/kcal]",ylab="diet energy [kcal/g]") #control diets
+points(data_chow$Dam_diet_exp_PNP_kcal,data_chow$Dam_diet_exp_E,pch=2 ) # experimental diets 
+arrows(data_chow$Dam_diet_contr_PNP_kcal,data_chow$Dam_diet_contr_E,data_chow$Dam_diet_exp_PNP_kcal,data_chow$Dam_diet_exp_E,length=0.1,lwd=0.2) #change in energy and PNP
+legend("top",legend=c("control dams","experimental dams"), pch=c(1,2),text.width=0.45, bty="n")
+text(0, 7, "A", cex=1.5)
+# INTERPRETATION: horizontal arrows - isocaloric protein manipulation diets, other arrows - both calories and protein change (mostly obesogenic diets).
+
+### PLOT B
+#plot dam diets as percent energy from fat vs. percent energy from carbs, with arrows linking control and experimental dams 
+plot(data_chow$Dam_diet_contr_fatE,data_chow$Dam_diet_contr_carbE,xlim=c(0,100),ylim=c(0,100),xlab="energy from fat [%]",ylab="energy from carbs [%]") #control diets
+points(data_chow$Dam_diet_exp_fatE,data_chow$Dam_diet_exp_carbE,pch=2) # experimental diets
+arrows(data_chow$Dam_diet_contr_fatE,data_chow$Dam_diet_contr_carbE,data_chow$Dam_diet_exp_fatE,data_chow$Dam_diet_exp_carbE,length=0.1,lwd=0.2) #change in energy and PNP
+legend("top",legend=c("control dams","experimental dams"), pch=c(1,2),text.width=35, bty="n")
+text(0, 100, "B", cex=1.5)
+#INTERPRETATION: vertical arrows - energy from fat stays the same, but carbs content changes (isocaloric protein manipulation diets), diagonal arrows - obesogenic diets: fat contribution increases and carbs decreases.
+
+#dev.off()
+```
+A. Almost all experiemntal diets have higher energy content than control dam diets. usually PNP ratio reeduced as result. Variation in energy and PNP within control diets.
+B. Experimental diets have more energy from fat than control dam diets. This usually is accompanied by reduction of carbohydrates in the diet.
+
+# 4 panel plot for dams only (dont use)
+```{r diets arrow 4 plots, fig.width=8, fig.height=9, echo=FALSE, eval=TRUE, include=FALSE}
+
+#pdf(file="Rplot_dam_diets_arrows.pdf",width=7,height=8,family="sans", pointsize=10)
+#pdf(file="Rplot_dam_diets_arrows.pdf",paper="a4",family="sans",pointsize=8)
+
+par(mfrow=c(2,2),mar=c(4,4,1,1.75),oma=c(1,1,0,0))
+
+### PLOT 1
+#plot dam diets as total energy vs. PNP_ratio, with arrows linking control and experimental dams
+plot(data$Dam_diet_contr_PNP_kcal,data$Dam_diet_contr_E,xlim=c(0,1),ylim=c(2,7),xlab="diet P:NP [kcal/kcal]",ylab="diet energy [kcal/g]") #control diets
+points(data$Dam_diet_exp_PNP_kcal,data$Dam_diet_exp_E,pch=2, col=data$Dam_choice_diet+1) # experimental diets (0+1=black=no choice, 1+1=red=choice)
+arrows(data$Dam_diet_contr_PNP_kcal,data$Dam_diet_contr_E,data$Dam_diet_exp_PNP_kcal,data$Dam_diet_exp_E,length=0.1,lwd=0.2) #change in energy and PNP
+legend("top",legend=c("control dams","experimental dams"), pch=c(1,2),text.width=0.45, bty="n")
+# INTERPRETATION: horizontal arrows - isocaloric protein manipulation diets, other arrows - both calories and protein change (mostly obesogenic diets). Red = choice diets.
+
+### PLOT 2
+#plot dam diets as percent energy from protein vs. percent energy from fat, with arrows linking control and experimental dams 
+plot(data$Dam_diet_contr_protE,data$Dam_diet_contr_fatE,xlim=c(0,80),ylim=c(0,100),xlab="energy from protein [%]",ylab="energy from fat [%]") #control diets
+points(data$Dam_diet_exp_protE,data$Dam_diet_exp_fatE,pch=2, col=data$Dam_choice_diet+1) # experimental diets (0+1=black=no choice, 1+1=red=choice)
+arrows(data$Dam_diet_contr_protE,data$Dam_diet_contr_fatE,data$Dam_diet_exp_protE,data$Dam_diet_exp_fatE,length=0.1,lwd=0.2) #change in energy and PNP
+legend("top",legend=c("control dams","experimental dams"), pch=c(1,2),text.width=35, bty="n")
+#INTERPRETATION: horizontal arrows - isocaloric protein manipulation diets (fats kept constant), vertical arrows - fat content manipulation (obesogenic diets) without changing protein content in the diet. Red = choice diets.
+
+### PLOT 3
+#plot dam diets as percent energy from protein vs. percent energy from carbs, with arrows linking control and experimental dams 
+plot(data$Dam_diet_contr_protE,data$Dam_diet_contr_carbE,xlim=c(0,100),ylim=c(0,100),xlab="energy from protein [%]",ylab="energy from carbs [%]") #control diets
+points(data$Dam_diet_exp_protE,data$Dam_diet_exp_carbE,pch=2, col=data$Dam_choice_diet+1) # experimental diets (0+1=black=no choice, 1+1=red=choice)
+arrows(data$Dam_diet_contr_protE,data$Dam_diet_contr_carbE,data$Dam_diet_exp_protE,data$Dam_diet_exp_carbE,length=0.1,lwd=0.2) #change in energy and PNP
+legend("top",legend=c("control dams","experimental dams"), pch=c(1,2),text.width=35, bty="n")
+#INTERPRETATION: diagonal arrows - isocaloric protein manipulation diets done by changing carbs in the diet, vertical arrows - fat content manipulation (obesogenic diets) alsop by changing carbs in the diet, but not protein. Red = choice diets.
+
+### PLOT 4
+#plot dam diets as percent energy from fat vs. percent energy from carbs, with arrows linking control and experimental dams 
+plot(data$Dam_diet_contr_fatE,data$Dam_diet_contr_carbE,xlim=c(0,100),ylim=c(0,100),xlab="energy from fat [%]",ylab="energy from carbs [%]") #control diets
+points(data$Dam_diet_exp_fatE,data$Dam_diet_exp_carbE,pch=2, col=data$Dam_choice_diet+1) # experimental diets (0+1=black=no choice, 1+1=red=choice)
+arrows(data$Dam_diet_contr_fatE,data$Dam_diet_contr_carbE,data$Dam_diet_exp_fatE,data$Dam_diet_exp_carbE,length=0.1,lwd=0.2) #change in energy and PNP
+legend("top",legend=c("control dams","experimental dams"), pch=c(1,2),text.width=35, bty="n")
+#INTERPRETATION: vertical arrows - energy from fat stays the same, but carbs content changes (isocaloric protein manipulation diets), diagonal arrows - obesogenic diets: fat contribution increases and carbs decreases. Red = choice diets.
+
+#dev.off()
+```
+
+# 4 panel plot for dams and offspring (dont use)
+```{r diets plot dam offspr, fig.width=8, fig.height=9, echo=FALSE, warning=FALSE, eval=TRUE, include=FALSE}
+#pdf(file="graphs/Rplot_dam_offspr_diets_arrows.pdf",width=7,height=8,family="sans",pointsize=10)
+par(mfrow=c(2,2),mar=c(4,4,1,1.75),oma=c(1,1,0,0))
+
+### PLOT 1
+#plot dam diets as total energy vs. PNP_ratio, with arrows linking control and experimental dams
+plot(data$Dam_diet_contr_PNP_kcal,data$Dam_diet_contr_E,xlim=c(0,1),ylim=c(2,7),xlab="diet P:NP [kcal/kcal]",ylab="diet energy [kcal/g]") #control diets
+points(data$Dam_diet_exp_PNP_kcal,data$Dam_diet_exp_E,pch=2) # experimental diets
+arrows(data$Dam_diet_contr_PNP_kcal,data$Dam_diet_contr_E,data$Dam_diet_exp_PNP_kcal,data$Dam_diet_exp_E,length=0.1) #change in energy and PNP contr.- exp dams
+#legend("topright",legend=c("control dams","experimental dams"), pch=c(1,2), text.width=0.45, bty="n", cex=1)
+# INTERPRETATION: ~vertical arrows - both calories and protein change (mostly obesogenic diets).
+# CHECK: in few diets total E decreases?
+points(data$Offspr_diet_PNP_kcal,data$Offspr_diet_E,pch=3) #energy and PNP in offspring diets
+arrows(data$Dam_diet_contr_PNP_kcal,data$Dam_diet_contr_E,data$Offspr_diet_PNP_kcal,data$Offspr_diet_E,length=0.1,lty=3) #change between contr. dams and offspring
+arrows(data$Dam_diet_exp_PNP_kcal,data$Dam_diet_exp_E,data$Offspr_diet_PNP_kcal,data$Offspr_diet_E,length=0.1,lty=3) #change between exp. dams and offspring
+#NOTE: some offspring diets unquantified (self-selection), others vary widely in composition - use as moderators?
+legend("topright",legend=c("control dams","experimental dams","offspring"), pch=c(1,2,3),text.width=0.45, bty="n", cex=1)
+
+### PLOT 2
+#plot dam diets as percent energy from protein vs. percent energy from fat, with arrows linking control and experimental dams 
+plot(data$Dam_diet_contr_protE,data$Dam_diet_contr_fatE,xlim=c(0,80),ylim=c(0,100),xlab="energy from protein [%]",ylab="energy from datat [%]") #control diets
+points(data$Dam_diet_exp_protE,data$Dam_diet_exp_fatE,pch=2) # experimental diets
+arrows(data$Dam_diet_contr_protE,data$Dam_diet_contr_fatE,data$Dam_diet_exp_protE,data$Dam_diet_exp_fatE,length=0.1) #change in energy and PNP
+#legend("topright",legend=c("control dams","experimental dams"), pch=c(1,2), text.width=35, bty="n", cex=1)
+#INTERPRETATION: vertical arrows - fat content manipulation (obesogenic diets) without changing protein content in the diet
+points(data$Offspr_diet_protE,data$Offspr_diet_fatE,pch=3) #energy and PNP in offspring diets
+arrows(data$Dam_diet_contr_protE,data$Dam_diet_contr_fatE,data$Offspr_diet_protE,data$Offspr_diet_fatE,length=0.1,lty=3) #change between contr. dams and offspring
+arrows(data$Dam_diet_exp_protE,data$Dam_diet_exp_fatE,data$Offspr_diet_protE,data$Offspr_diet_fatE,length=0.1,lty=3) #change between exp. dams and offspring
+#NOTE: some offspring diets unquantified (self-selection), others vary widely in composition - use as moderators?
+legend("topright",legend=c("control dams","experimental dams","offspring"), pch=c(1,2,3),text.width=35, bty="n", cex=1)
+
+### PLOT 3
+#plot dam diets as percent energy from protein vs. percent energy from carbs, with arrows linking control and experimental dams 
+plot(data$Dam_diet_contr_protE,data$Dam_diet_contr_carbE,xlim=c(0,80),ylim=c(0,100),xlab="energy from protein [%]",ylab="energy from carbs [%]") #control diets
+points(data$Dam_diet_exp_protE,data$Dam_diet_exp_carbE,pch=2) # experimental diets
+arrows(data$Dam_diet_contr_protE,data$Dam_diet_contr_carbE,data$Dam_diet_exp_protE,data$Dam_diet_exp_carbE,length=0.1) #change in energy and PNP
+#legend("topright",legend=c("control dams","experimental dams"), pch=c(1,2), text.width=35, bty="n", cex=1)
+#INTERPRETATION: vertical arrows - fat content manipulation (obesogenic diets) alsop by changing carbs in the diet, but not protein.
+points(data$Offspr_diet_protE,data$Offspr_diet_carbE,pch=3) #energy and PNP in offspring diets
+arrows(data$Dam_diet_contr_protE,data$Dam_diet_contr_carbE,data$Offspr_diet_protE,data$Offspr_diet_carbE,length=0.1,lty=3) #change between contr. dams and offspring
+arrows(data$Dam_diet_exp_protE,data$Dam_diet_exp_carbE,data$Offspr_diet_protE,data$Offspr_diet_carbE,length=0.1,lty=3) #change between exp. dams and offspring
+#NOTE: some offspring diets unquantified (self-selection), others vary widely in composition - use as moderators?
+legend("topright",legend=c("control dams","experimental dams","offspring"), pch=c(1,2,3),text.width=35, bty="n", cex=1)
+
+### PLOT 4
+#plot dam diets as percent energy from fat vs. percent energy from carbs, with arrows linking control and experimental dams 
+plot(data$Dam_diet_contr_fatE,data$Dam_diet_contr_carbE,xlim=c(0,80),ylim=c(0,100),xlab="energy from fat [%]",ylab="energy from carbs [%]") #control diets
+points(data$Dam_diet_exp_fatE,data$Dam_diet_exp_carbE,pch=2) # experimental diets
+arrows(data$Dam_diet_contr_fatE,data$Dam_diet_contr_carbE,data$Dam_diet_exp_fatE,data$Dam_diet_exp_carbE,length=0.1) #change in energy and PNP
+#legend("topright",legend=c("control dams","experimental dams"), pch=c(1,2), text.width=35, bty="n", cex=1)
+#INTERPRETATION: diagonal arrows - obesogenic diets: fat contribution increases and carbs decreases.
+points(data$Offspr_diet_fatE,data$Offspr_diet_carbE,pch=3) #energy and PNP in offspring diets
+arrows(data$Dam_diet_contr_fatE,data$Dam_diet_contr_carbE,data$Offspr_diet_fatE,data$Offspr_diet_carbE,length=0.1,lty=3) #change between contr. dams and offspring
+arrows(data$Dam_diet_exp_fatE,data$Dam_diet_exp_carbE,data$Offspr_diet_fatE,data$Offspr_diet_carbE,length=0.1,lty=3) #change between exp. dams and offspring
+#NOTE: some offspring diets unquantified (self-selection), others vary widely in composition - use as moderators?
+legend("topright",legend=c("control dams","experimental dams","offspring"), pch=c(1,2,3),text.width=35, bty="n", cex=1)
+
+#dev.off()
+```
+  
+Set transparent colors for plotting:
+```{r transparent colors function, echo=FALSE, eval=TRUE, include=FALSE}
+## Add an alpha value to a colour - a function from: http://lamages.blogspot.co.nz/2013/04/how-to-change-alpha-value-of-colours-in.html
+# my version is stored in library folder and loaded automatically as a helper function!
+
+#set colors for offspring sex categories: F, FM, M - currently in "helpers"" script
+#SexColours <- c("red", "steelblue", "grey")
+#SexColoursAlpha <- add.alpha(SexColours, alpha=0.4) #use in plotting functions as: col=SexColoursAlpha["colorname"]
+```
+
+FUNNEL PLOTS - full data set
+----------------------------
+
+```{r raw funnel plots, fig.width=8, fig.height=9, echo=FALSE, eval=TRUE, include=FALSE}
+
+#pdf(file="Rplot_raw_funnels.pdf",width=7,height=8,family="sans",pointsize=10)
+
+par(mfrow=c(2,2),mar=c(4,4,1,1.75),oma=c(1,1,0,0))
+
+### PLOT Bodyweight
+metaBW_fa <- metagen(data$Bodyweight_Hd, sqrt(data$Bodyweight_Hd_Var))
+funnel.meta(metaBW_fa, yaxis = "invse", xlab="Hedge's d", ylab="Precision (1/SE)", xlim=c(-10,10), ylim=c(0,6), pch=ifelse(data$Offspr_sex=="F",16, ifelse(data$Offspr_sex=="M",17,15)), level=NULL, comb.fixed=FALSE, comb.random=FALSE, cex=1.2, col = ifelse(data$Offspr_sex=="F",SexColoursAlpha["red"], ifelse(data$Offspr_sex=="M",SexColoursAlpha["steelblue"],SexColoursAlpha["grey"])))
+abline(v=0, lwd=1, lty=2)
+title(main = "(a) Body mass [g]", adj=0)
+legend("topright",legend=c("females","males","females+males"), pch=c(16,17,15), col=c(SexColoursAlpha["red"],SexColoursAlpha["steelblue"],SexColoursAlpha["grey"]), text.width=7, bty="n", cex=1)
+
+### PLOT AbsIntake
+metaAI_fa <- metagen(data$AbsIntake_Hd, sqrt(data$AbsIntake_Hd_Var))
+funnel.meta(metaAI_fa, yaxis = "invse", xlab="Hedge's d", ylab="Precision (1/SE)", xlim=c(-10,10), ylim=c(0,6), pch=ifelse(data$Offspr_sex=="F",16, ifelse(data$Offspr_sex=="M",17,15)), level=NULL, comb.fixed=FALSE, comb.random=FALSE, cex=1.2, col = ifelse(data$Offspr_sex=="F",SexColoursAlpha["red"], ifelse(data$Offspr_sex=="M",SexColoursAlpha["steelblue"],SexColoursAlpha["grey"])))
+abline(v=0, lwd=1, lty=2)
+title(main = "(b) Absolute intake [kcal/day]", adj=0)
+legend("topright",legend=c("females","males","females+males"), pch=c(16,17,15), col=c(SexColoursAlpha["red"],SexColoursAlpha["steelblue"],SexColoursAlpha["grey"]), text.width=7, bty="n", cex=1)
+
+### PLOT RelIntake
+metaRI_fa <- metagen(data$RelIntake_Hd, sqrt(data$RelIntake_Hd_Var))
+funnel.meta(metaRI_fa, yaxis = "invse", xlab="Hedge's d", ylab="Precision (1/SE)", xlim=c(-10,10), ylim=c(0,6), pch=ifelse(data$Offspr_sex=="F",16, ifelse(data$Offspr_sex=="M",17,15)), level=NULL, comb.fixed=FALSE, comb.random=FALSE, cex=1.2, col = ifelse(data$Offspr_sex=="F",SexColoursAlpha["red"], ifelse(data$Offspr_sex=="M",SexColoursAlpha["steelblue"],SexColoursAlpha["grey"])))
+abline(v=0, lwd=1, lty=2)
+title(main = "(c) Linear intake [kcal/g/day]", adj=0)
+legend("topright",legend=c("females","males","females+males"), pch=c(16,17,15), col=c(SexColoursAlpha["red"],SexColoursAlpha["steelblue"],SexColoursAlpha["grey"]), text.width=7, bty="n", cex=1)
+
+### PLOT RelIntake2
+metaRI2_fa <- metagen(data$RelIntake2_Hd, sqrt(data$RelIntake2_Hd_Var))
+funnel.meta(metaRI2_fa, yaxis = "invse", xlab="Hedge's d", ylab="Precision (1/SE)", xlim=c(-10,10), ylim=c(0,6), pch=ifelse(data$Offspr_sex=="F",16, ifelse(data$Offspr_sex=="M",17,15)), level=NULL, comb.fixed=FALSE, comb.random=FALSE, cex=1.2, col = ifelse(data$Offspr_sex=="F",SexColoursAlpha["red"], ifelse(data$Offspr_sex=="M",SexColoursAlpha["steelblue"],SexColoursAlpha["grey"])))
+abline(v=0, lwd=1, lty=2)
+title(main = "(d) Allometric intake [kcal/g^0.75/day]", adj=0)
+legend("topright",legend=c("females","males","females+males"), pch=c(16,17,15), col=c(SexColoursAlpha["red"],SexColoursAlpha["steelblue"],SexColoursAlpha["grey"]), text.width=7, bty="n", cex=1)
+
+#dev.off()
+```
+
+Correlations among outcomes  
+---------------------------
+Checking the relationship between the 4 outcomes: AI, RI, RI2 and BW  
+```{r corr outcomes plot, fig.width=8, fig.height=6, echo=FALSE, eval=TRUE, include=FALSE}
+#pdf(file="Rplot_corr_4outcomes.pdf",width=7,height=8,family="sans",pointsize=10)
+
+par(mfrow=c(1,3),bty="l",lwd=1)
+
+cor.test(data$Bodyweight_Hd,data$AbsIntake_Hd,na.action=exclude) # sign. positive corr.
+cor.test(rank(data$Bodyweight_Hd),rank(data$AbsIntake_Hd),na.action=exclude) # sign. positive corr.
+plot(data$Bodyweight_Hd,data$AbsIntake_Hd) #bigger diff in BW - bigger diff. in AI (if exp. bigger than cont. they also eat more in total)
+abline(lm(data$Bodyweight_Hd~data$AbsIntake_Hd))
+
+cor.test(data$Bodyweight_Hd,data$RelIntake_Hd) # sign. negative corr.
+cor.test(rank(data$Bodyweight_Hd),rank(data$RelIntake_Hd)) # sign. negative corr.
+plot(data$Bodyweight_Hd,data$RelIntake_Hd) #bigger diff in BW - less diff. in RI (if exp. bigger than cont. they eat less per g bw)
+abline(lm(data$Bodyweight_Hd~data$RelIntake_Hd))
+
+cor.test(data$Bodyweight_Hd,data$RelIntake2_Hd) # non-sign. negative corr.
+cor.test(rank(data$Bodyweight_Hd),rank(data$RelIntake2_Hd)) # non-sign. negative corr.
+plot(data$Bodyweight_Hd,data$RelIntake2_Hd) #no relationship between diff in BW and diff. in RI2, which means RI2 is well adjusted for diff. in BW!
+abline(lm(data$Bodyweight_Hd~data$RelIntake2_Hd))
+#dev.off()
+```
+When offspring of experimental dams are bigger than offspring of control dams, thay also eat significantly more (absolute intake d - positove correlation with bodyweight d).
+Negative relatonship with linear relative intake - when big difference in body size the big experimental animals seem to eat less per unit of body weight than controls, suggesting allometric relationship.
+RelIntake2 (allometric) does not significantly correlate with body mass, which suggests it is well adjusted for differences in body mass.  
+  
+Correlations among predictors  
+-----------------------------
+
+```{r cont mod scatterplot, fig.width=8, fig.height=8, echo=FALSE, eval=TRUE, include=FALSE}
+# histograms and correlation scatterplot matrix for raw continuous moderators
+
+hist(data$Intake_age_dPC)
+summary(data$Intake_age_dPC)
+
+library(psych)
+
+#names(data)
+par(mfrow=c(1,1),bty="l",lwd=1)
+
+#all:
+pairs.panels(~Dam_diet_start_exp_dPC+Dam_diet_end_exp_dPC+Dam_diet_duration+Intake_age_dPC+Intake_duration+Dam_diet_contr_E+Dam_diet_contr_PC+Dam_diet_contr_PNP_kcal+Dam_diet_exp_E+Dam_diet_exp_PC+Dam_diet_exp_PNP_kcal+Offspr_diet_E+Offspr_diet_PC+Offspr_diet_PNP_kcal+Year, main = "Correlations between selected continuous predictors",lm=TRUE, ellipses=FALSE, jiggle=TRUE,data=data)
+
+data[data$Dam_diet_contr_E > 4,] #11 ES have energy-rich control diets!
+
+#Maternal diet manip. timing:
+pairs.panels(~data$Dam_diet_start_exp_dPC + data$Dam_diet_end_exp_dPC + data$Dam_diet_duration) #start and end dates uncorrelated
+dim(data[data$Dam_diet_end_exp_dPC > 22,])#82 ES gestation+lactation
+nrow(data[data$Dam_diet_end_exp_dPC <= 22,])#34 ES where gestation-only manipulation
+dim(data[data$Dam_diet_start_exp_dPC < 0,])#81 ES with pre-conception start
+dim(data[data$Dam_diet_start_exp_dPC >= 0,])#35 ES with pre-conception start
+
+#Maternal diet properties:
+Dam_diet_diff_E <- data$Dam_diet_exp_E - data$Dam_diet_contr_E
+pairs.panels(~data$Dam_diet_contr_E + data$Dam_diet_exp_E + Dam_diet_diff_E) #contr. corr with exp., difference correlated with exp. but not contr.
+
+Dam_diet_diff_PC < -data$Dam_diet_exp_PC - data$Dam_diet_contr_PC
+pairs.panels(~data$Dam_diet_contr_PC + data$Dam_diet_exp_PC + Dam_diet_diff_PC) #contr. NOT corr with exp., difference correlated with exp. but not contr.
+
+Dam_diet_diff_PNP_kcal <- data$Dam_diet_exp_PNP_kcal - data$Dam_diet_contr_PNP_kcal
+pairs.panels(~data$Dam_diet_contr_PNP_kcal + data$Dam_diet_exp_PNP_kcal + Dam_diet_diff_PNP_kcal) #contr NOT corr with exp., difference negativ. correlated with contr. (if control had high PNP, it was more likely to decrease in experimental diet!)
+
+#Offspring diet properties:
+Dam_diet_diff_E <- data$Dam_diet_exp_E - data$Dam_diet_contr_E
+pairs.panels(~data$Offspr_diet_E + data$Offspr_diet_PC + data$Offspr_diet_PNP_kcal) #E some pos. corr. with PC ratio?
+```
+
+
+Exploring categorical moderators - plots
+----------------------------------------
+
+```{r categ mod plots, echo=FALSE, eval=TRUE, include=FALSE}
+
+#pdf(file="Rplot_boxplot_Hd_strain_sex.pdf",width=7,height=8,family="sans",pointsize=10)
+par(mfcol=c(4,2))
+
+#split by strain
+plot(Bodyweight_Hd~Strain,data=data)
+plot(AbsIntake_Hd~Strain,data=data)
+plot(RelIntake_Hd~Strain,data=data)
+plot(RelIntake2_Hd~Strain,data=data)
+
+#split by sex
+plot(Bodyweight_Hd~Offspr_sex,data=data)
+plot(AbsIntake_Hd~Offspr_sex,data=data)
+plot(RelIntake_Hd~Offspr_sex,data=data)
+plot(RelIntake2_Hd~Offspr_sex,data=data)
+
+#dev.off()
+
+
+#pdf(file="Rplot_boxplots_Hd_choice_lactation_mismatch.pdf",width=7,height=8,family="sans",pointsize=10)
+par(mfcol=c(4,3))
+
+#split by dam choice
+boxplot(Bodyweight_Hd~Dam_choice_diet,data=data,main=("Bodyweight_Hd~Dam_choice_diet"))
+boxplot(AbsIntake_Hd~Dam_choice_diet,data=data,main=("AbsIntake_Hd~Dam_choice_diet"))
+boxplot(RelIntake_Hd~Dam_choice_diet,data=data,main=("RelIntake_Hd~Dam_choice_diet"))
+boxplot(RelIntake2_Hd~Dam_choice_diet,data=data,main=("RelIntake2_Hd~Dam_choice_diet"))
+
+#split by Dam_diet_lactation_incl
+boxplot(Bodyweight_Hd~Dam_diet_lactation_incl,data=data,main=("Bodyweight_Hd~Dam_diet_lactation_incl"))
+boxplot(AbsIntake_Hd~Dam_diet_lactation_incl,data=data,main=("AbsIntake_Hd~Dam_diet_lactation_incl"))
+boxplot(RelIntake_Hd~Dam_diet_lactation_incl,data=data,main=("RelIntake_Hd~Dam_diet_lactation_incl"))
+boxplot(RelIntake2_Hd~Dam_diet_lactation_incl,data=data,main=("RelIntake2_Hd~Dam_diet_lactation_incl"))
+
+#split by offspring diet type
+boxplot(Bodyweight_Hd~Offspr_diet_OB,data=data,main=("Bodyweight_Hd~Offspr_diet_OB"))
+boxplot(AbsIntake_Hd~Offspr_diet_OB,data=data,main=("AbsIntake_Hd~Offspr_diet_OB"))
+boxplot(RelIntake_Hd~Offspr_diet_OB,data=data,main=("RelIntake_Hd~Offspr_diet_OB"))
+boxplot(RelIntake2_Hd~Offspr_diet_OB,data=data,main=("RelIntake2_Hd~Offspr_diet_OB"))
+
+#dev.off()
+```
+
+Bubble plots of dam diet effect by sex
+--------------------------------------
+
+```{r bubble plots by sex, echo=FALSE, eval=TRUE, include=FALSE}
+###### Bubble plots of effects of selected continuous predictors
+
+#! use data$ for the full data set and fas$ for the non-choice subset!
+
+#######Dam and offspring diet parameters - full data set
+### Bodyweight
+
+#pdf(file="Rplot_bubbl_BW.pdf",width=8,height=12,family="sans",pointsize=10)
+
+par(mfrow=c(8,4),mar=c(4,4,1,1.75),oma=c(0,1,0,0))
+#Bodyweight vs. Dam_diet_exp_E
+symbols(data$Dam_diet_exp_E,data$Bodyweight_Hd,circles=1/data$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_exp_E",ylab="Effect size (Hedge's d)",main="Bodyweight - ALL",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd ~ data$Dam_diet_exp_E, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_exp_E[data$Offspr_sex=="F"],data$Bodyweight_Hd[data$Offspr_sex=="F"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_exp_E",ylab="",main="Bodyweight - F",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_exp_E[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_exp_E[data$Offspr_sex=="M"],data$Bodyweight_Hd[data$Offspr_sex=="M"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_exp_E",ylab="",main="Bodyweight - M",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_exp_E[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_exp_E[data$Offspr_sex=="FM"],data$Bodyweight_Hd[data$Offspr_sex=="FM"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_exp_E",ylab="",main="Bodyweight - FM",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_exp_E[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Dam_diet_exp_PNP_kcal
+symbols(data$Dam_diet_exp_PNP_kcal,data$Bodyweight_Hd,circles=1/data$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_exp_PNP_kcal",ylab="Effect size (Hedge's d)",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd ~ data$Dam_diet_exp_PNP_kcal, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_exp_PNP_kcal[data$Offspr_sex=="F"],data$Bodyweight_Hd[data$Offspr_sex=="F"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_exp_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_exp_PNP_kcal[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_exp_PNP_kcal[data$Offspr_sex=="M"],data$Bodyweight_Hd[data$Offspr_sex=="M"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_exp_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_exp_PNP_kcal[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_exp_PNP_kcal[data$Offspr_sex=="FM"],data$Bodyweight_Hd[data$Offspr_sex=="FM"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_exp_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_exp_PNP_kcal[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Dam_diet_contr_E
+symbols(data$Dam_diet_contr_E,data$Bodyweight_Hd,circles=1/data$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_contr_E",ylab="Effect size (Hedge's d)",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd ~ data$Dam_diet_contr_E, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_contr_E[data$Offspr_sex=="F"],data$Bodyweight_Hd[data$Offspr_sex=="F"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_contr_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_contr_E[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_contr_E[data$Offspr_sex=="M"],data$Bodyweight_Hd[data$Offspr_sex=="M"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_contr_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_contr_E[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_contr_E[data$Offspr_sex=="FM"],data$Bodyweight_Hd[data$Offspr_sex=="FM"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_contr_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_contr_E[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Dam_diet_contr_PNP_kcal
+symbols(data$Dam_diet_contr_PNP_kcal,data$Bodyweight_Hd,circles=1/data$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_contr_PNP_kcal",ylab="Effect size (Hedge's d)",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd ~ data$Dam_diet_contr_PNP_kcal, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_contr_PNP_kcal[data$Offspr_sex=="F"],data$Bodyweight_Hd[data$Offspr_sex=="F"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_contr_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_contr_PNP_kcal[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_contr_PNP_kcal[data$Offspr_sex=="M"],data$Bodyweight_Hd[data$Offspr_sex=="M"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_contr_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_contr_PNP_kcal[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_contr_PNP_kcal[data$Offspr_sex=="FM"],data$Bodyweight_Hd[data$Offspr_sex=="FM"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_contr_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_contr_PNP_kcal[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#Bodyweight vs. data$Dam_diet_diff_E
+symbols(data$Dam_diet_diff_E,data$Bodyweight_Hd,circles=1/data$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_diff_E",ylab="Effect size (Hedge's d)",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd ~ data$Dam_diet_diff_E, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_E[data$Offspr_sex=="F"],data$Bodyweight_Hd[data$Offspr_sex=="F"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_diff_E",ylab="",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_diff_E[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_E[data$Offspr_sex=="M"],data$Bodyweight_Hd[data$Offspr_sex=="M"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_diff_E",ylab="",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_diff_E[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_E[data$Offspr_sex=="FM"],data$Bodyweight_Hd[data$Offspr_sex=="FM"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_diff_E",ylab="",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_diff_E[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#Bodyweight vs. data$Dam_diet_diff_PNP
+symbols(data$Dam_diet_diff_PNP,data$Bodyweight_Hd,circles=1/data$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_diff_PNP",ylab="Effect size (Hedge's d)",xlim=c(-80,20),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd ~ data$Dam_diet_diff_PNP, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_PNP[data$Offspr_sex=="F"],data$Bodyweight_Hd[data$Offspr_sex=="F"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_diff_PNP",ylab="",xlim=c(-80,20),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_diff_PNP[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_PNP[data$Offspr_sex=="M"],data$Bodyweight_Hd[data$Offspr_sex=="M"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_diff_PNP",ylab="",xlim=c(-80,20),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_diff_PNP[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_PNP[data$Offspr_sex=="FM"],data$Bodyweight_Hd[data$Offspr_sex=="FM"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_diff_PNP",ylab="",xlim=c(-80,20),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_diff_PNP[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Offspr_diet_E
+symbols(data$Offspr_diet_E,data$Bodyweight_Hd,circles=1/data$Bodyweight_Hd_Var,inches=0.1,xlab="Offspr_diet_E",ylab="Effect size (Hedge's d)",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd ~ data$Offspr_diet_E, na.action=na.omit), lwd=2)
+symbols(data$Offspr_diet_E[data$Offspr_sex=="F"],data$Bodyweight_Hd[data$Offspr_sex=="F"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Offspr_diet_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="F"] ~ data$Offspr_diet_E[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Offspr_diet_E[data$Offspr_sex=="M"],data$Bodyweight_Hd[data$Offspr_sex=="M"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Offspr_diet_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="M"] ~ data$Offspr_diet_E[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Offspr_diet_E[data$Offspr_sex=="FM"],data$Bodyweight_Hd[data$Offspr_sex=="FM"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Offspr_diet_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="FM"] ~ data$Offspr_diet_E[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Offspr_diet_PNP_kcal
+symbols(data$Offspr_diet_PNP_kcal,data$Bodyweight_Hd,circles=1/data$Bodyweight_Hd_Var,inches=0.1,xlab="Offspr_diet_PNP_kcal",ylab="Effect size (Hedge's d)",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd ~ data$Offspr_diet_PNP_kcal, na.action=na.omit), lwd=2)
+symbols(data$Offspr_diet_PNP_kcal[data$Offspr_sex=="F"],data$Bodyweight_Hd[data$Offspr_sex=="F"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Offspr_diet_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="F"] ~ data$Offspr_diet_PNP_kcal[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Offspr_diet_PNP_kcal[data$Offspr_sex=="M"],data$Bodyweight_Hd[data$Offspr_sex=="M"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Offspr_diet_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="M"] ~ data$Offspr_diet_PNP_kcal[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Offspr_diet_PNP_kcal[data$Offspr_sex=="FM"],data$Bodyweight_Hd[data$Offspr_sex=="FM"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Offspr_diet_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="FM"] ~ data$Offspr_diet_PNP_kcal[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+
+#dev.off()
+
+
+### RelIntake2
+#pdf(file="Rplot_bubbl_RI2.pdf",width=8,height=12,family="sans",pointsize=10)
+
+par(mfrow=c(8,4),mar=c(4,4,1,1.75),oma=c(0,1,0,0))
+#RelIntake2 vs. Dam_diet_exp_E
+symbols(data$Dam_diet_exp_E,data$RelIntake2_Hd,circles=1/data$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_exp_E",ylab="Effect size (Hedge's d)",main="RelIntake2 - ALL",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd ~ data$Dam_diet_exp_E, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_exp_E[data$Offspr_sex=="F"],data$RelIntake2_Hd[data$Offspr_sex=="F"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_exp_E",ylab="",main="RelIntake2 - F",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_exp_E[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_exp_E[data$Offspr_sex=="M"],data$RelIntake2_Hd[data$Offspr_sex=="M"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_exp_E",ylab="",main="RelIntake2 - M",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_exp_E[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_exp_E[data$Offspr_sex=="FM"],data$RelIntake2_Hd[data$Offspr_sex=="FM"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_exp_E",ylab="",main="RelIntake2 - FM",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_exp_E[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Dam_diet_exp_PNP_kcal
+symbols(data$Dam_diet_exp_PNP_kcal,data$RelIntake2_Hd,circles=1/data$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_exp_PNP_kcal",ylab="Effect size (Hedge's d)",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd ~ data$Dam_diet_exp_PNP_kcal, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_exp_PNP_kcal[data$Offspr_sex=="F"],data$RelIntake2_Hd[data$Offspr_sex=="F"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_exp_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_exp_PNP_kcal[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_exp_PNP_kcal[data$Offspr_sex=="M"],data$RelIntake2_Hd[data$Offspr_sex=="M"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_exp_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_exp_PNP_kcal[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_exp_PNP_kcal[data$Offspr_sex=="FM"],data$RelIntake2_Hd[data$Offspr_sex=="FM"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_exp_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_exp_PNP_kcal[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Dam_diet_contr_E
+symbols(data$Dam_diet_contr_E,data$RelIntake2_Hd,circles=1/data$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_contr_E",ylab="Effect size (Hedge's d)",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd ~ data$Dam_diet_contr_E, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_contr_E[data$Offspr_sex=="F"],data$RelIntake2_Hd[data$Offspr_sex=="F"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_contr_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_contr_E[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_contr_E[data$Offspr_sex=="M"],data$RelIntake2_Hd[data$Offspr_sex=="M"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_contr_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_contr_E[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_contr_E[data$Offspr_sex=="FM"],data$RelIntake2_Hd[data$Offspr_sex=="FM"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_contr_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_contr_E[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Dam_diet_contr_PNP_kcal
+symbols(data$Dam_diet_contr_PNP_kcal,data$RelIntake2_Hd,circles=1/data$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_contr_PNP_kcal",ylab="Effect size (Hedge's d)",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd ~ data$Dam_diet_contr_PNP_kcal, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_contr_PNP_kcal[data$Offspr_sex=="F"],data$RelIntake2_Hd[data$Offspr_sex=="F"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_contr_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_contr_PNP_kcal[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_contr_PNP_kcal[data$Offspr_sex=="M"],data$RelIntake2_Hd[data$Offspr_sex=="M"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_contr_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_contr_PNP_kcal[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_contr_PNP_kcal[data$Offspr_sex=="FM"],data$RelIntake2_Hd[data$Offspr_sex=="FM"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_contr_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_contr_PNP_kcal[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. data$Dam_diet_diff_E
+symbols(data$Dam_diet_diff_E,data$RelIntake2_Hd,circles=1/data$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_diff_E",ylab="Effect size (Hedge's d)",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd ~ data$Dam_diet_diff_E, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_E[data$Offspr_sex=="F"],data$RelIntake2_Hd[data$Offspr_sex=="F"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_diff_E",ylab="",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_diff_E[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_E[data$Offspr_sex=="M"],data$RelIntake2_Hd[data$Offspr_sex=="M"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_diff_E",ylab="",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_diff_E[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_E[data$Offspr_sex=="FM"],data$RelIntake2_Hd[data$Offspr_sex=="FM"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_diff_E",ylab="",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_diff_E[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. data$Dam_diet_diff_PNP
+symbols(data$Dam_diet_diff_PNP,data$RelIntake2_Hd,circles=1/data$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_diff_PNP",ylab="Effect size (Hedge's d)",xlim=c(-80,20),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd ~ data$Dam_diet_diff_PNP, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_PNP[data$Offspr_sex=="F"],data$RelIntake2_Hd[data$Offspr_sex=="F"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_diff_PNP",ylab="",xlim=c(-80,20),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_diff_PNP[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_PNP[data$Offspr_sex=="M"],data$RelIntake2_Hd[data$Offspr_sex=="M"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_diff_PNP",ylab="",xlim=c(-80,20),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_diff_PNP[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_PNP[data$Offspr_sex=="FM"],data$RelIntake2_Hd[data$Offspr_sex=="FM"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_diff_PNP",ylab="",xlim=c(-80,20),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_diff_PNP[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Offspr_diet_E
+symbols(data$Offspr_diet_E,data$RelIntake2_Hd,circles=1/data$RelIntake2_Hd_Var,inches=0.1,xlab="Offspr_diet_E",ylab="Effect size (Hedge's d)",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd ~ data$Offspr_diet_E, na.action=na.omit), lwd=2)
+symbols(data$Offspr_diet_E[data$Offspr_sex=="F"],data$RelIntake2_Hd[data$Offspr_sex=="F"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Offspr_diet_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="F"] ~ data$Offspr_diet_E[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Offspr_diet_E[data$Offspr_sex=="M"],data$RelIntake2_Hd[data$Offspr_sex=="M"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Offspr_diet_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="M"] ~ data$Offspr_diet_E[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Offspr_diet_E[data$Offspr_sex=="FM"],data$RelIntake2_Hd[data$Offspr_sex=="FM"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Offspr_diet_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="FM"] ~ data$Offspr_diet_E[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Offspr_diet_PNP_kcal
+symbols(data$Offspr_diet_PNP_kcal,data$RelIntake2_Hd,circles=1/data$RelIntake2_Hd_Var,inches=0.1,xlab="Offspr_diet_PNP_kcal",ylab="Effect size (Hedge's d)",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd ~ data$Offspr_diet_PNP_kcal, na.action=na.omit), lwd=2)
+symbols(data$Offspr_diet_PNP_kcal[data$Offspr_sex=="F"],data$RelIntake2_Hd[data$Offspr_sex=="F"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Offspr_diet_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="F"] ~ data$Offspr_diet_PNP_kcal[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Offspr_diet_PNP_kcal[data$Offspr_sex=="M"],data$RelIntake2_Hd[data$Offspr_sex=="M"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Offspr_diet_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="M"] ~ data$Offspr_diet_PNP_kcal[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Offspr_diet_PNP_kcal[data$Offspr_sex=="FM"],data$RelIntake2_Hd[data$Offspr_sex=="FM"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Offspr_diet_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="FM"] ~ data$Offspr_diet_PNP_kcal[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+
+#dev.off()
+
+
+####### Other continuous parameters - timing, diet differences
+
+### Bodyweight
+#pdf(file="Rplot_bubbl_BW_other.pdf",width=7,height=8,family="sans",pointsize=10)
+
+par(mfrow=c(6,4),mar=c(4,4,1,1.75),oma=c(0,1,0,0))
+#Bodyweight vs. TBodyweight_age_dPC
+symbols(data$TBodyweight_age_dPC,data$Bodyweight_Hd,circles=1/data$Bodyweight_Hd_Var,inches=0.1,xlab="TBodyweight_age_dPC",ylab="Effect size (Hedge's d)",main="Bodyweight - ALL",xlim=c(0,400),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd ~ data$TBodyweight_age_dPC, na.action=na.omit), lwd=2)
+symbols(data$TBodyweight_age_dPC[data$Offspr_sex=="F"],data$Bodyweight_Hd[data$Offspr_sex=="F"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="TBodyweight_age_dPC",ylab="",main="Bodyweight - F",xlim=c(0,400),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="F"] ~ data$TBodyweight_age_dPC[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$TBodyweight_age_dPC[data$Offspr_sex=="M"],data$Bodyweight_Hd[data$Offspr_sex=="M"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="TBodyweight_age_dPC",ylab="",main="Bodyweight - M",xlim=c(0,400),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="M"] ~ data$TBodyweight_age_dPC[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$TBodyweight_age_dPC[data$Offspr_sex=="FM"],data$Bodyweight_Hd[data$Offspr_sex=="FM"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="TBodyweight_age_dPC",ylab="",main="Bodyweight - FM",xlim=c(0,400),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="FM"] ~ data$TBodyweight_age_dPC[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Dam_diet_start_exp_dPC
+symbols(data$Dam_diet_start_exp_dPC,data$Bodyweight_Hd,circles=1/data$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_start_exp_dPC",ylab="Effect size (Hedge's d)",xlim=c(-60,10),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd ~ data$Dam_diet_start_exp_dPC, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_start_exp_dPC[data$Offspr_sex=="F"],data$Bodyweight_Hd[data$Offspr_sex=="F"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_start_exp_dPC",ylab="",xlim=c(-60,10),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_start_exp_dPC[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_start_exp_dPC[data$Offspr_sex=="M"],data$Bodyweight_Hd[data$Offspr_sex=="M"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_start_exp_dPC",ylab="",xlim=c(-60,10),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_start_exp_dPC[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_start_exp_dPC[data$Offspr_sex=="FM"],data$Bodyweight_Hd[data$Offspr_sex=="FM"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_start_exp_dPC",ylab="",xlim=c(-60,10),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_start_exp_dPC[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Dam_diet_end_exp_dPC
+symbols(data$Dam_diet_end_exp_dPC,data$Bodyweight_Hd,circles=1/data$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_end_exp_dPC",ylab="Effect size (Hedge's d)",xlim=c(20,50),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd ~ data$Dam_diet_end_exp_dPC, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_end_exp_dPC[data$Offspr_sex=="F"],data$Bodyweight_Hd[data$Offspr_sex=="F"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_end_exp_dPC",ylab="",xlim=c(20,50),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_end_exp_dPC[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_end_exp_dPC[data$Offspr_sex=="M"],data$Bodyweight_Hd[data$Offspr_sex=="M"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_end_exp_dPC",ylab="",xlim=c(20,50),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_end_exp_dPC[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_end_exp_dPC[data$Offspr_sex=="FM"],data$Bodyweight_Hd[data$Offspr_sex=="FM"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_end_exp_dPC",ylab="",xlim=c(20,50),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_end_exp_dPC[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Dam_diet_duration
+symbols(data$Dam_diet_duration,data$Bodyweight_Hd,circles=1/data$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_duration",ylab="Effect size (Hedge's d)",xlim=c(10,110),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd ~ data$Dam_diet_duration, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_duration[data$Offspr_sex=="F"],data$Bodyweight_Hd[data$Offspr_sex=="F"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_duration",ylab="",xlim=c(10,110),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_duration[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_duration[data$Offspr_sex=="M"],data$Bodyweight_Hd[data$Offspr_sex=="M"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_duration",ylab="",xlim=c(10,110),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_duration[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_duration[data$Offspr_sex=="FM"],data$Bodyweight_Hd[data$Offspr_sex=="FM"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_duration",ylab="",xlim=c(10,110),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_duration[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Dam_diet_diff_E
+symbols(data$Dam_diet_diff_E,data$Bodyweight_Hd,circles=1/data$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_diff_E",ylab="Effect size (Hedge's d)",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd ~ data$Dam_diet_diff_E, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_E[data$Offspr_sex=="F"],data$Bodyweight_Hd[data$Offspr_sex=="F"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_diff_E",ylab="",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_diff_E[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_E[data$Offspr_sex=="M"],data$Bodyweight_Hd[data$Offspr_sex=="M"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_diff_E",ylab="",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_diff_E[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_E[data$Offspr_sex=="FM"],data$Bodyweight_Hd[data$Offspr_sex=="FM"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_diff_E",ylab="",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_diff_E[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Dam_diet_diff_PNP_kcal
+symbols(data$Dam_diet_diff_PNP_kcal,data$Bodyweight_Hd,circles=1/data$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_diff_PNP_kcal",ylab="Effect size (Hedge's d)",xlim=c(-100,10),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd ~ data$Dam_diet_diff_PNP_kcal, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_PNP_kcal[data$Offspr_sex=="F"],data$Bodyweight_Hd[data$Offspr_sex=="F"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_diff_PNP_kcal",ylab="",xlim=c(-100,10),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_diff_PNP_kcal[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_PNP_kcal[data$Offspr_sex=="M"],data$Bodyweight_Hd[data$Offspr_sex=="M"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_diff_PNP_kcal",ylab="",xlim=c(-100,10),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_diff_PNP_kcal[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_PNP_kcal[data$Offspr_sex=="FM"],data$Bodyweight_Hd[data$Offspr_sex=="FM"],circles=1/data$Bodyweight_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_diff_PNP_kcal",ylab="",xlim=c(-100,10),ylim=c(-4,6))
+abline(lm(data$Bodyweight_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_diff_PNP_kcal[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+
+#dev.off()
+
+
+### RelIntake2
+#pdf(file="Rplot_bubbl_RI2_other.pdf",width=7,height=8,family="sans",pointsize=10)
+
+par(mfrow=c(6,4),mar=c(4,4,1,1.75),oma=c(0,1,0,0))
+#RelIntake2 vs. Intake_age_dPC
+symbols(data$Intake_age_dPC,data$RelIntake2_Hd,circles=1/data$RelIntake2_Hd_Var,inches=0.1,xlab="Intake_age_dPC",ylab="Effect size (Hedge's d)",main="RelIntake2 - ALL",xlim=c(0,400),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd ~ data$Intake_age_dPC, na.action=na.omit), lwd=2)
+symbols(data$Intake_age_dPC[data$Offspr_sex=="F"],data$RelIntake2_Hd[data$Offspr_sex=="F"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Intake_age_dPC",ylab="",main="RelIntake2 - F",xlim=c(0,400),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="F"] ~ data$Intake_age_dPC[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Intake_age_dPC[data$Offspr_sex=="M"],data$RelIntake2_Hd[data$Offspr_sex=="M"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Intake_age_dPC",ylab="",main="RelIntake2 - M",xlim=c(0,400),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="M"] ~ data$Intake_age_dPC[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Intake_age_dPC[data$Offspr_sex=="FM"],data$RelIntake2_Hd[data$Offspr_sex=="FM"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Intake_age_dPC",ylab="",main="RelIntake2 - FM",xlim=c(0,400),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="FM"] ~ data$Intake_age_dPC[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Dam_diet_start_exp_dPC
+symbols(data$Dam_diet_start_exp_dPC,data$RelIntake2_Hd,circles=1/data$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_start_exp_dPC",ylab="Effect size (Hedge's d)",xlim=c(-60,10),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd ~ data$Dam_diet_start_exp_dPC, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_start_exp_dPC[data$Offspr_sex=="F"],data$RelIntake2_Hd[data$Offspr_sex=="F"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_start_exp_dPC",ylab="",xlim=c(-60,10),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_start_exp_dPC[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_start_exp_dPC[data$Offspr_sex=="M"],data$RelIntake2_Hd[data$Offspr_sex=="M"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_start_exp_dPC",ylab="",xlim=c(-60,10),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_start_exp_dPC[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_start_exp_dPC[data$Offspr_sex=="FM"],data$RelIntake2_Hd[data$Offspr_sex=="FM"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_start_exp_dPC",ylab="",xlim=c(-60,10),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_start_exp_dPC[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Dam_diet_end_exp_dPC
+symbols(data$Dam_diet_end_exp_dPC,data$RelIntake2_Hd,circles=1/data$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_end_exp_dPC",ylab="Effect size (Hedge's d)",xlim=c(20,50),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd ~ data$Dam_diet_end_exp_dPC, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_end_exp_dPC[data$Offspr_sex=="F"],data$RelIntake2_Hd[data$Offspr_sex=="F"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_end_exp_dPC",ylab="",xlim=c(20,50),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_end_exp_dPC[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_end_exp_dPC[data$Offspr_sex=="M"],data$RelIntake2_Hd[data$Offspr_sex=="M"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_end_exp_dPC",ylab="",xlim=c(20,50),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_end_exp_dPC[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_end_exp_dPC[data$Offspr_sex=="FM"],data$RelIntake2_Hd[data$Offspr_sex=="FM"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_end_exp_dPC",ylab="",xlim=c(20,50),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_end_exp_dPC[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Dam_diet_duration
+symbols(data$Dam_diet_duration,data$RelIntake2_Hd,circles=1/data$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_duration",ylab="Effect size (Hedge's d)",xlim=c(10,110),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd ~ data$Dam_diet_duration, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_duration[data$Offspr_sex=="F"],data$RelIntake2_Hd[data$Offspr_sex=="F"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_duration",ylab="",xlim=c(10,110),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_duration[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_duration[data$Offspr_sex=="M"],data$RelIntake2_Hd[data$Offspr_sex=="M"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_duration",ylab="",xlim=c(10,110),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_duration[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_duration[data$Offspr_sex=="FM"],data$RelIntake2_Hd[data$Offspr_sex=="FM"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_duration",ylab="",xlim=c(10,110),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_duration[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Dam_diet_diff_E
+symbols(data$Dam_diet_diff_E,data$RelIntake2_Hd,circles=1/data$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_diff_E",ylab="Effect size (Hedge's d)",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd ~ data$Dam_diet_diff_E, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_E[data$Offspr_sex=="F"],data$RelIntake2_Hd[data$Offspr_sex=="F"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_diff_E",ylab="",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_diff_E[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_E[data$Offspr_sex=="M"],data$RelIntake2_Hd[data$Offspr_sex=="M"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_diff_E",ylab="",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_diff_E[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_E[data$Offspr_sex=="FM"],data$RelIntake2_Hd[data$Offspr_sex=="FM"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_diff_E",ylab="",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_diff_E[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Dam_diet_diff_PNP_kcal
+symbols(data$Dam_diet_diff_PNP_kcal,data$RelIntake2_Hd,circles=1/data$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_diff_PNP_kcal",ylab="Effect size (Hedge's d)",xlim=c(-100,10),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd ~ data$Dam_diet_diff_PNP_kcal, na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_PNP_kcal[data$Offspr_sex=="F"],data$RelIntake2_Hd[data$Offspr_sex=="F"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_diff_PNP_kcal",ylab="",xlim=c(-100,10),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="F"] ~ data$Dam_diet_diff_PNP_kcal[data$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_PNP_kcal[data$Offspr_sex=="M"],data$RelIntake2_Hd[data$Offspr_sex=="M"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_diff_PNP_kcal",ylab="",xlim=c(-100,10),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="M"] ~ data$Dam_diet_diff_PNP_kcal[data$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+symbols(data$Dam_diet_diff_PNP_kcal[data$Offspr_sex=="FM"],data$RelIntake2_Hd[data$Offspr_sex=="FM"],circles=1/data$RelIntake2_Hd_Var[data$Offspr_sex=="FM"],inches=0.1,xlab="Dam_diet_diff_PNP_kcal",ylab="",xlim=c(-100,10),ylim=c(-4,6))
+abline(lm(data$RelIntake2_Hd[data$Offspr_sex=="FM"] ~ data$Dam_diet_diff_PNP_kcal[data$Offspr_sex=="FM"], na.action=na.omit), lwd=2)
+
+#dev.off()
+```
+
+Same plots for the chow (no-choice) dam diet subset.
+
+```{r bubble plots by sex no-choice subset, echo=FALSE, eval=TRUE, include=FALSE}
+#######Dam and offspring diet parameters - no-choice data subset
+
+### Bodyweight
+#pdf(file="Rplot_bubbl_BW_NCsub.pdf",width=7,height=8,family="sans",pointsize=10)
+
+par(mfrow=c(6,3),mar=c(4,4,1,1.75),oma=c(0,1,0,0))
+#Bodyweight vs. Dam_diet_exp_E
+symbols(data_chow$Dam_diet_exp_E,data_chow$Bodyweight_Hd,circles=1/data_chow$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_exp_E",ylab="Effect size (Hedge's d)",main="Bodyweight - ALL",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd ~ data_chow$Dam_diet_exp_E, na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_exp_E[data_chow$Offspr_sex=="F"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_exp_E",ylab="",main="Bodyweight - F",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Dam_diet_exp_E[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_exp_E[data_chow$Offspr_sex=="M"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_exp_E",ylab="",main="Bodyweight - M",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Dam_diet_exp_E[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Dam_diet_exp_PNP_kcal
+symbols(data_chow$Dam_diet_exp_PNP_kcal,data_chow$Bodyweight_Hd,circles=1/data_chow$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_exp_PNP_kcal",ylab="Effect size (Hedge's d)",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd ~ data_chow$Dam_diet_exp_PNP_kcal, na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_exp_PNP_kcal[data_chow$Offspr_sex=="F"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_exp_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Dam_diet_exp_PNP_kcal[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_exp_PNP_kcal[data_chow$Offspr_sex=="M"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_exp_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Dam_diet_exp_PNP_kcal[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Dam_diet_contr_E
+symbols(data_chow$Dam_diet_contr_E,data_chow$Bodyweight_Hd,circles=1/data_chow$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_contr_E",ylab="Effect size (Hedge's d)",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd ~ data_chow$Dam_diet_contr_E, na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_contr_E[data_chow$Offspr_sex=="F"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_contr_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Dam_diet_contr_E[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_contr_E[data_chow$Offspr_sex=="M"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_contr_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Dam_diet_contr_E[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Dam_diet_contr_PNP_kcal
+symbols(data_chow$Dam_diet_contr_PNP_kcal,data_chow$Bodyweight_Hd,circles=1/data_chow$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_contr_PNP_kcal",ylab="Effect size (Hedge's d)",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd ~ data_chow$Dam_diet_contr_PNP_kcal, na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_contr_PNP_kcal[data_chow$Offspr_sex=="F"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_contr_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Dam_diet_contr_PNP_kcal[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_contr_PNP_kcal[data_chow$Offspr_sex=="M"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_contr_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Dam_diet_contr_PNP_kcal[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Offspr_diet_E
+symbols(data_chow$Offspr_diet_E,data_chow$Bodyweight_Hd,circles=1/data_chow$Bodyweight_Hd_Var,inches=0.1,xlab="Offspr_diet_E",ylab="Effect size (Hedge's d)",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd ~ data_chow$Offspr_diet_E, na.action=na.omit), lwd=2)
+symbols(data_chow$Offspr_diet_E[data_chow$Offspr_sex=="F"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Offspr_diet_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Offspr_diet_E[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Offspr_diet_E[data_chow$Offspr_sex=="M"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Offspr_diet_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Offspr_diet_E[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Offspr_diet_PNP_kcal
+symbols(data_chow$Offspr_diet_PNP_kcal,data_chow$Bodyweight_Hd,circles=1/data_chow$Bodyweight_Hd_Var,inches=0.1,xlab="Offspr_diet_PNP_kcal",ylab="Effect size (Hedge's d)",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd ~ data_chow$Offspr_diet_PNP_kcal, na.action=na.omit), lwd=2)
+symbols(data_chow$Offspr_diet_PNP_kcal[data_chow$Offspr_sex=="F"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Offspr_diet_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Offspr_diet_PNP_kcal[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Offspr_diet_PNP_kcal[data_chow$Offspr_sex=="M"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Offspr_diet_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Offspr_diet_PNP_kcal[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+
+#dev.off()
+
+
+### RelIntake2
+#pdf(file="Rplot_bubbl_RI2_NCsub.pdf",width=7,height=8,family="sans",pointsize=10)
+
+par(mfrow=c(6,3),mar=c(4,4,1,1.75),oma=c(0,1,0,0))
+#RelIntake2 vs. Dam_diet_exp_E
+symbols(data_chow$Dam_diet_exp_E,data_chow$RelIntake2_Hd,circles=1/data_chow$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_exp_E",ylab="Effect size (Hedge's d)",main="RelIntake2 - ALL",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd ~ data_chow$Dam_diet_exp_E, na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_exp_E[data_chow$Offspr_sex=="F"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_exp_E",ylab="",main="RelIntake2 - F",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Dam_diet_exp_E[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_exp_E[data_chow$Offspr_sex=="M"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_exp_E",ylab="",main="RelIntake2 - M",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Dam_diet_exp_E[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Dam_diet_exp_PNP_kcal
+symbols(data_chow$Dam_diet_exp_PNP_kcal,data_chow$RelIntake2_Hd,circles=1/data_chow$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_exp_PNP_kcal",ylab="Effect size (Hedge's d)",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd ~ data_chow$Dam_diet_exp_PNP_kcal, na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_exp_PNP_kcal[data_chow$Offspr_sex=="F"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_exp_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Dam_diet_exp_PNP_kcal[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_exp_PNP_kcal[data_chow$Offspr_sex=="M"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_exp_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Dam_diet_exp_PNP_kcal[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Dam_diet_contr_E
+symbols(data_chow$Dam_diet_contr_E,data_chow$RelIntake2_Hd,circles=1/data_chow$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_contr_E",ylab="Effect size (Hedge's d)",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd ~ data_chow$Dam_diet_contr_E, na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_contr_E[data_chow$Offspr_sex=="F"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_contr_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Dam_diet_contr_E[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_contr_E[data_chow$Offspr_sex=="M"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_contr_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Dam_diet_contr_E[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Dam_diet_contr_PNP_kcal
+symbols(data_chow$Dam_diet_contr_PNP_kcal,data_chow$RelIntake2_Hd,circles=1/data_chow$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_contr_PNP_kcal",ylab="Effect size (Hedge's d)",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd ~ data_chow$Dam_diet_contr_PNP_kcal, na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_contr_PNP_kcal[data_chow$Offspr_sex=="F"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_contr_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Dam_diet_contr_PNP_kcal[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_contr_PNP_kcal[data_chow$Offspr_sex=="M"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_contr_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Dam_diet_contr_PNP_kcal[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Offspr_diet_E
+symbols(data_chow$Offspr_diet_E,data_chow$RelIntake2_Hd,circles=1/data_chow$RelIntake2_Hd_Var,inches=0.1,xlab="Offspr_diet_E",ylab="Effect size (Hedge's d)",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd ~ data_chow$Offspr_diet_E, na.action=na.omit), lwd=2)
+symbols(data_chow$Offspr_diet_E[data_chow$Offspr_sex=="F"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Offspr_diet_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Offspr_diet_E[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Offspr_diet_E[data_chow$Offspr_sex=="M"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Offspr_diet_E",ylab="",xlim=c(2,7),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Offspr_diet_E[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Offspr_diet_PNP_kcal
+symbols(data_chow$Offspr_diet_PNP_kcal,data_chow$RelIntake2_Hd,circles=1/data_chow$RelIntake2_Hd_Var,inches=0.1,xlab="Offspr_diet_PNP_kcal",ylab="Effect size (Hedge's d)",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd ~ data_chow$Offspr_diet_PNP_kcal, na.action=na.omit), lwd=2)
+symbols(data_chow$Offspr_diet_PNP_kcal[data_chow$Offspr_sex=="F"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Offspr_diet_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Offspr_diet_PNP_kcal[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Offspr_diet_PNP_kcal[data_chow$Offspr_sex=="M"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Offspr_diet_PNP_kcal",ylab="",xlim=c(0,0.4),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Offspr_diet_PNP_kcal[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+
+#dev.off()
+
+
+####### Other continuous parameters - timing, diet differences
+
+### Bodyweight
+#pdf(file="Rplot_bubbl_BW_other_NCsub.pdf",width=7,height=8,family="sans",pointsize=10)
+
+par(mfrow=c(6,3),mar=c(4,4,1,1.75),oma=c(0,1,0,0))
+#Bodyweight vs. TBodyweight_age_dPC
+symbols(data_chow$TBodyweight_age_dPC,data_chow$Bodyweight_Hd,circles=1/data_chow$Bodyweight_Hd_Var,inches=0.1,xlab="TBodyweight_age_dPC",ylab="Effect size (Hedge's d)",main="Bodyweight - ALL",xlim=c(0,400),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd ~ data_chow$TBodyweight_age_dPC, na.action=na.omit), lwd=2)
+symbols(data_chow$TBodyweight_age_dPC[data_chow$Offspr_sex=="F"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="TBodyweight_age_dPC",ylab="",main="Bodyweight - F",xlim=c(0,400),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$TBodyweight_age_dPC[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$TBodyweight_age_dPC[data_chow$Offspr_sex=="M"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="TBodyweight_age_dPC",ylab="",main="Bodyweight - M",xlim=c(0,400),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$TBodyweight_age_dPC[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Dam_diet_start_exp_dPC
+symbols(data_chow$Dam_diet_start_exp_dPC,data_chow$Bodyweight_Hd,circles=1/data_chow$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_start_exp_dPC",ylab="Effect size (Hedge's d)",xlim=c(-60,10),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd ~ data_chow$Dam_diet_start_exp_dPC, na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_start_exp_dPC[data_chow$Offspr_sex=="F"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_start_exp_dPC",ylab="",xlim=c(-60,10),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Dam_diet_start_exp_dPC[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_start_exp_dPC[data_chow$Offspr_sex=="M"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_start_exp_dPC",ylab="",xlim=c(-60,10),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Dam_diet_start_exp_dPC[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Dam_diet_end_exp_dPC
+symbols(data_chow$Dam_diet_end_exp_dPC,data_chow$Bodyweight_Hd,circles=1/data_chow$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_end_exp_dPC",ylab="Effect size (Hedge's d)",xlim=c(20,50),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd ~ data_chow$Dam_diet_end_exp_dPC, na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_end_exp_dPC[data_chow$Offspr_sex=="F"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_end_exp_dPC",ylab="",xlim=c(20,50),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Dam_diet_end_exp_dPC[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_end_exp_dPC[data_chow$Offspr_sex=="M"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_end_exp_dPC",ylab="",xlim=c(20,50),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Dam_diet_end_exp_dPC[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Dam_diet_duration
+symbols(data_chow$Dam_diet_duration,data_chow$Bodyweight_Hd,circles=1/data_chow$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_duration",ylab="Effect size (Hedge's d)",xlim=c(10,110),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd ~ data_chow$Dam_diet_duration, na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_duration[data_chow$Offspr_sex=="F"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_duration",ylab="",xlim=c(10,110),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Dam_diet_duration[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_duration[data_chow$Offspr_sex=="M"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_duration",ylab="",xlim=c(10,110),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Dam_diet_duration[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Dam_diet_diff_E
+symbols(data_chow$Dam_diet_diff_E,data_chow$Bodyweight_Hd,circles=1/data_chow$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_diff_E",ylab="Effect size (Hedge's d)",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd ~ data_chow$Dam_diet_diff_E, na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_diff_E[data_chow$Offspr_sex=="F"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_diff_E",ylab="",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Dam_diet_diff_E[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_diff_E[data_chow$Offspr_sex=="M"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_diff_E",ylab="",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Dam_diet_diff_E[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#Bodyweight vs. Dam_diet_diff_PNP_kcal
+symbols(data_chow$Dam_diet_diff_PNP_kcal,data_chow$Bodyweight_Hd,circles=1/data_chow$Bodyweight_Hd_Var,inches=0.1,xlab="Dam_diet_diff_PNP_kcal",ylab="Effect size (Hedge's d)",xlim=c(-100,10),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd ~ data_chow$Dam_diet_diff_PNP_kcal, na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_diff_PNP_kcal[data_chow$Offspr_sex=="F"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_diff_PNP_kcal",ylab="",xlim=c(-100,10),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Dam_diet_diff_PNP_kcal[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_diff_PNP_kcal[data_chow$Offspr_sex=="M"],data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$Bodyweight_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_diff_PNP_kcal",ylab="",xlim=c(-100,10),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Dam_diet_diff_PNP_kcal[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+
+#dev.off()
+
+### RelIntake2
+#pdf(file="Rplot_bubbl_RI2_other_NCsub.pdf",width=7,height=8,family="sans",pointsize=10)
+
+par(mfrow=c(6,3),mar=c(4,4,1,1.75),oma=c(0,1,0,0))
+#RelIntake2 vs. Intake_age_dPC
+symbols(data_chow$Intake_age_dPC,data_chow$RelIntake2_Hd,circles=1/data_chow$RelIntake2_Hd_Var,inches=0.1,xlab="Intake_age_dPC",ylab="Effect size (Hedge's d)",main="RelIntake2 - ALL",xlim=c(0,400),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd ~ data_chow$Intake_age_dPC, na.action=na.omit), lwd=2)
+symbols(data_chow$Intake_age_dPC[data_chow$Offspr_sex=="F"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Intake_age_dPC",ylab="",main="RelIntake2 - F",xlim=c(0,400),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Intake_age_dPC[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Intake_age_dPC[data_chow$Offspr_sex=="M"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Intake_age_dPC",ylab="",main="RelIntake2 - M",xlim=c(0,400),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Intake_age_dPC[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Dam_diet_start_exp_dPC
+symbols(data_chow$Dam_diet_start_exp_dPC,data_chow$RelIntake2_Hd,circles=1/data_chow$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_start_exp_dPC",ylab="Effect size (Hedge's d)",xlim=c(-60,10),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd ~ data_chow$Dam_diet_start_exp_dPC, na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_start_exp_dPC[data_chow$Offspr_sex=="F"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_start_exp_dPC",ylab="",xlim=c(-60,10),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Dam_diet_start_exp_dPC[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_start_exp_dPC[data_chow$Offspr_sex=="M"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_start_exp_dPC",ylab="",xlim=c(-60,10),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Dam_diet_start_exp_dPC[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Dam_diet_end_exp_dPC
+symbols(data_chow$Dam_diet_end_exp_dPC,data_chow$RelIntake2_Hd,circles=1/data_chow$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_end_exp_dPC",ylab="Effect size (Hedge's d)",xlim=c(20,50),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd ~ data_chow$Dam_diet_end_exp_dPC, na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_end_exp_dPC[data_chow$Offspr_sex=="F"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_end_exp_dPC",ylab="",xlim=c(20,50),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Dam_diet_end_exp_dPC[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_end_exp_dPC[data_chow$Offspr_sex=="M"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_end_exp_dPC",ylab="",xlim=c(20,50),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Dam_diet_end_exp_dPC[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Dam_diet_duration
+symbols(data_chow$Dam_diet_duration,data_chow$RelIntake2_Hd,circles=1/data_chow$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_duration",ylab="Effect size (Hedge's d)",xlim=c(10,110),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd ~ data_chow$Dam_diet_duration, na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_duration[data_chow$Offspr_sex=="F"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_duration",ylab="",xlim=c(10,110),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Dam_diet_duration[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_duration[data_chow$Offspr_sex=="M"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_duration",ylab="",xlim=c(10,110),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Dam_diet_duration[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Dam_diet_diff_E
+symbols(data_chow$Dam_diet_diff_E,data_chow$RelIntake2_Hd,circles=1/data_chow$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_diff_E",ylab="Effect size (Hedge's d)",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd ~ data_chow$Dam_diet_diff_E, na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_diff_E[data_chow$Offspr_sex=="F"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_diff_E",ylab="",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Dam_diet_diff_E[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_diff_E[data_chow$Offspr_sex=="M"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_diff_E",ylab="",xlim=c(0,100),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Dam_diet_diff_E[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+#RelIntake2 vs. Dam_diet_diff_PNP_kcal
+symbols(data_chow$Dam_diet_diff_PNP_kcal,data_chow$RelIntake2_Hd,circles=1/data_chow$RelIntake2_Hd_Var,inches=0.1,xlab="Dam_diet_diff_PNP_kcal",ylab="Effect size (Hedge's d)",xlim=c(-100,10),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd ~ data_chow$Dam_diet_diff_PNP_kcal, na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_diff_PNP_kcal[data_chow$Offspr_sex=="F"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="F"],inches=0.1,xlab="Dam_diet_diff_PNP_kcal",ylab="",xlim=c(-100,10),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="F"] ~ data_chow$Dam_diet_diff_PNP_kcal[data_chow$Offspr_sex=="F"], na.action=na.omit), lwd=2)
+symbols(data_chow$Dam_diet_diff_PNP_kcal[data_chow$Offspr_sex=="M"],data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"],circles=1/data_chow$RelIntake2_Hd_Var[data_chow$Offspr_sex=="M"],inches=0.1,xlab="Dam_diet_diff_PNP_kcal",ylab="",xlim=c(-100,10),ylim=c(-4,6))
+abline(lm(data_chow$RelIntake2_Hd[data_chow$Offspr_sex=="M"] ~ data_chow$Dam_diet_diff_PNP_kcal[data_chow$Offspr_sex=="M"], na.action=na.omit), lwd=2)
+
+#dev.off()
+
+```
+
+Metafor analyses - Body weight data - Full data set
+---------------------------------------------------
+
+Controlling for the fact that some the effect sizes are affected by shared control groups. 
+(using adjasted vaues saved in Hd_var_combined and variance-covariance matrices for body weight and allometric intake outcomes).
+
+
+```{r metafor BW full, echo=FALSE, eval=TRUE, include=FALSE}
+#From which studies the most influential data points (with smallest Hd_Var) come from?
+#which(1/data$Bodyweight_Hd_Var > 10) #sample sizes 20-30 per group, but nothing dramatic
+#data[which(1/data$Bodyweight_Hd_Var > 10), ]
+
+library(metafor)
+
+### BW
+# Without moderators and without corrections for shared control groups
+resBW <- rma(yi=Bodyweight_Hd, vi=Bodyweight_Hd_Var, data=data, measure="GEN", method="REML")
+summary(resBW)
+
+# Random-effect only model with study id (all below are with corrections for shared control groups)
+#resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix, random=list(~1|Exp_ID), data=data, method="REML", struct="UN")
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix, random=list(~1|Study_ID), data=data, method="REML", struct="UN")
+summary(resBW)
+
+# Random-effect only model with study and strain (null model)
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix, random=list(~1|Study_ID,~1|Strain), data=data, method="REML", struct="UN") 
+summary(resBW) #overall small positive diff
+
+# Strain model
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix, random=list(~1|Study_ID), mods = ~factor(Strain)-1, data=data, method="REML", struct="UN")
+summary(resBW) #Sprague-Dawley and C57BL/6 - positive large ES
+
+# Add Sex as factor
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix, random=list(~1|Study_ID, ~1|Strain), mods=~factor(Offspr_sex)-1, data=data, method="REML", struct="UN")
+summary(resBW) #largest effect in males
+
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix, random=list(~1|Study_ID, ~1|Strain), mods=~factor(Offspr_sex), data=data, method="REML", struct="UN")
+summary(resBW) #largest effect in males signif diff. from females
+
+#resBW_M <- rma(yi=Bodyweight_Hd, vi=Bodyweight_matrix, data=data, measure="GEN", method="REML",subset=(Offspr_sex=="M"))#single-sex subset (nneds new VC matrix!)
+
+#choice vs. chow diets only
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix, random=list(~1|Study_ID, ~1|Strain), mods=~factor(Dam_choice_diet), data=data, method="REML", struct="UN")
+summary(resBW) #no diff if choice or chow dam diet
+
+
+# Mixed-effect models with strain and study as random factors 
+#(full models - in all males have the positive effect and it depends on the treatment end date (whether it goes into lactation))
+#offspring diet type as categorical predictor
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + factor(Dam_choice_diet) + factor(Offspr_diet_OB) + Z_TBodyweight_age_dPC + Z_Dam_diet_start + Z_Dam_diet_end - 1, data=data, method="REML") 
+summary(resBW)
+
+#sex, dam diet type, offspring age and diet composition - BEST full model nr 1?
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + factor(Dam_choice_diet) + Z_TBodyweight_age_dPC + Z_Dam_diet_start + Z_Dam_diet_end + Z_Offspr_diet_E + Z_Offspr_diet_PNP_kcal - 1, data=data, method="REML")
+summary(resBW)
+
+#with lactation period as categorical factor  - BEST full model nr 2?
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + factor(Dam_choice_diet) + Z_TBodyweight_age_dPC + factor(Dam_diet_lactation_incl) + Z_Offspr_diet_E + Z_Offspr_diet_PNP_kcal - 1, data=data, method="REML") 
+summary(resBW)
+
+#with dam and offspring diet-related moderators - do not use as dam diet composition is not reliable
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + factor(Dam_choice_diet) +  Z_TBodyweight_age_dPC + Z_Dam_diet_start + Z_Dam_diet_end + Z_Dam_diet_diff_E + Z_Dam_diet_diff_PNP_kcal + Z_Offspr_diet_E + Z_Offspr_diet_PNP_kcal - 1, data=data, method="REML") #adding diet properties (when available) shows that PNP matters, but diet info often missing or unreliable! - use no-choice (NC) subset next to explore diet properties effects!
+summary(resBW)
+```
+
+Metafor analyses - Body weight data - chow (no-choice) diet  data subset   
+-----------------------------------------------------------
+
+```{r metafor BW chow, echo=FALSE, eval=TRUE, include=FALSE}
+## No-choice subset
+
+#exclude single FM datapoint!
+data_chow68 <- subset(data_chow, Offspr_sex!="FM") #68 ES - for analyses with offspring sex moderator!
+  
+# Without moderators and without corrections for shared control groups
+resBW <- rma(yi=Bodyweight_Hd, vi=Bodyweight_Hd_Var, data=data_chow68, measure="GEN", method="REML")
+summary(resBW)
+
+# Random-effect only model with study id (all below are with corrections for shared control groups)
+#resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix, random=list(~1|Exp_ID), data=data_chow68, method="REML", struct="UN")
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix_NC, random=list(~1|Study_ID), data=data_chow68, method="REML", struct="UN")
+summary(resBW)
+
+# Random-effect only model with study and strain (null model)
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix_NC, random=list(~1|Study_ID,~1|Strain), data=data_chow68, method="REML", struct="UN") 
+summary(resBW) #overall small positive diff
+
+# Strain model
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix_NC, random=list(~1|Study_ID), mods = ~factor(Strain)-1, data=data_chow68, method="REML", struct="UN")
+summary(resBW) #Sprague-Dawley and C57BL/6 - positive large ES
+
+# Add Sex as factor
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix_NC, random=list(~1|Study_ID, ~1|Strain), mods=~factor(Offspr_sex)-1, data=data_chow68, method="REML", struct="UN")
+summary(resBW) #largest effect in males
+
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix_NC, random=list(~1|Study_ID, ~1|Strain), mods=~factor(Offspr_sex), data=data_chow68, method="REML", struct="UN")
+summary(resBW) #largest effect in males signif diff. from females
+
+
+## Mixed-effect models with strain and study as random factors 
+# min
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix_NC, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + Z_TBodyweight_age_dPC + Z_Dam_diet_start + Z_Dam_diet_end - 1, data=data_chow68, method="REML", struct="UN") # excluding choice studies does not change the pattern of full model - M and diet_end signif. positive
+summary(resBW)
+
+#max
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix_NC, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + Z_TBodyweight_age_dPC  + Z_Dam_diet_start + Z_Dam_diet_end +  Z_Dam_diet_exp_E + Z_Dam_diet_exp_PNP_kcal +  Z_Dam_diet_contr_E + Z_Dam_diet_contr_PNP_kcal - 1, data=data_chow68, method="REML", struct="UN")
+summary(resBW) #diet end time ans exp PNP positive signif.
+
+#reduced - use?
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix_NC, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + Z_TBodyweight_age_dPC + Z_Dam_diet_start + Z_Dam_diet_end + Z_Dam_diet_exp_E + Z_Dam_diet_exp_PNP_kcal - 1, data=data_chow68, method="REML", struct="UN")
+summary(resBW) #diet end time and exp diet PNP positive signif. - Note: PNP and E are significantly negatively correlated! (the higher energy - more fat - less protein)
+
+#cor.test(data_chow68$Z_Dam_diet_exp_E, data_chow68$Z_Dam_diet_exp_PNP_kcal)
+#par(mfrow=c(1,2),mar=c(4,4,1,1.75),oma=c(0,1,0,0))
+#plot(data_chow68$Z_Dam_diet_exp_E, data_chow68$Z_Dam_diet_exp_PNP_kcal)
+#abline(lm(data_chow68$Z_Dam_diet_exp_E ~ data_chow68$Z_Dam_diet_exp_PNP_kcal, na.action=na.omit), lwd=2) X negative corr. between E and PNP - the higher E the less protein in the diet (more fat)!
+
+#reduced - without E
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix_NC, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + Z_TBodyweight_age_dPC + Z_Dam_diet_start + Z_Dam_diet_end + Z_Dam_diet_exp_PNP_kcal - 1, data=data_chow68, method="REML", struct="UN")
+summary(resBW) #diet end time ans exp diet PNP positive signif.
+
+#diff model
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix_NC, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + Z_TBodyweight_age_dPC + Z_Dam_diet_start + Z_Dam_diet_end + Z_Dam_diet_diff_E + Dam_diet_diff_PNP_kcal - 1, data=data_chow68, method="REML", struct="UN")
+summary(resBW) #same effect, but eaker, so its not the difference but avsolute values that matter?
+
+#contr/exp model
+resBW <- rma.mv(yi=Bodyweight_Hd, V=Bodyweight_matrix_NC, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + Z_TBodyweight_age_dPC + Z_Dam_diet_start + Z_Dam_diet_end + scale(Dam_diet_contr_E) + scale(Dam_diet_contr_PNP_kcal) + scale(Dam_diet_exp_E) + scale(Dam_diet_exp_PNP_kcal) - 1, data=data_chow68, method="REML", struct="UN")
+summary(resBW) #control diet not inportant but exp diett PNP is!
+
+#raw data bubble plots
+par(mfrow=c(1,3),mar=c(4,4,1,1.75),oma=c(0,1,0,0))
+symbols(data_chow68$Dam_diet_exp_PNP_kcal,data_chow68$Bodyweight_Hd,circles=1/data_chow68$Bodyweight_Hd_Var_combined,inches=0.1,xlab="Dam_diet_exp_PNP_kcal",ylab="Effect size (Hedge's d)",ylim=c(-4,6))
+abline(lm(data_chow68$Bodyweight_Hd ~ data_chow68$Dam_diet_exp_PNP_kcal, na.action=na.omit), lwd=2)
+symbols(data_chow68$Dam_diet_exp_E,data_chow68$Bodyweight_Hd,circles=1/data_chow68$Bodyweight_Hd_Var_combined,inches=0.1,xlab="Dam_diet_exp_E",ylab="Effect size (Hedge's d)",ylim=c(-4,6))
+abline(lm(data_chow68$Bodyweight_Hd ~ data_chow68$Dam_diet_exp_E, na.action=na.omit), lwd=2)
+symbols(data_chow68$Dam_diet_end,data_chow68$Bodyweight_Hd,circles=1/data_chow68$Bodyweight_Hd_Var_combined,inches=0.1,xlab="Dam_diet_end",ylab="Effect size (Hedge's d)",ylim=c(-4,6))
+abline(lm(data_chow68$Bodyweight_Hd ~ data_chow68$Dam_diet_end, na.action=na.omit), lwd=2)
+
+
+#library(lattice)
+#par(mfrow=c(1,1),mar=c(4,4,1,1.75),oma=c(0,1,0,0))
+#xyplot(data_chow68$Bodyweight_Hd ~ data_chow68$Dam_diet_exp_E, type=c("smooth", "p"))
+
+confint(resBW)
+funnel(resBW) #very bad funnel plot!
+forest(resBW)
+coef(resBW)
+vcov(resBW)
+```
+
+
+Metafor analyses - Allometric food intake data (RI2) - Full data set
+--------------------------------------------------------------------
+
+Controlling for the fact that some the effect sizes are affected by shared control groups. 
+(using adjasted vaues saved in Hd_var_combined and variance-covariance matrices for body weight and allometric intake outcomes).
+
+
+```{r metafor RI2 full, echo=FALSE, eval=TRUE, include=FALSE}
+#From which studies the most influential data points (with smallest Hd_Var) come from?
+#which(1/data$RelIntake2_Hd_Var > 10) #sample sizes 20-30 per group, but nothing dramatic
+#data[which(1/data$RelIntake2_Hd_Var > 10), ]
+
+library(metafor)
+
+### RI
+# Without moderators and without corrections for shared control groups
+resRI2 <- rma(yi=RelIntake2_Hd, vi=RelIntake2_Hd_Var, data=data, measure="GEN", method="REML")
+summary(resRI2)
+
+forest(resRI2, cex=0.5)
+
+# Random-effect only model with study id (all below are with corrections for shared control groups)
+#resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix, random=list(~1|Exp_ID), data=data, method="REML", struct="UN")
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix, random=list(~1|Study_ID), data=data, method="REML", struct="UN")
+summary(resRI2)
+
+# Random-effect only model with study and strain (null model)
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix, random=list(~1|Study_ID,~1|Strain), data=data, method="REML", struct="UN") 
+summary(resRI2) #overall small positive diff
+
+# Strain model
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix, random=list(~1|Study_ID), mods = ~factor(Strain)-1, data=data, method="REML", struct="UN")
+summary(resRI2) #NMRI and C57BL/6 - positive large ES
+
+# Add Sex as factor
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix, random=list(~1|Study_ID, ~1|Strain), mods=~factor(Offspr_sex)-1, data=data, method="REML", struct="UN")
+summary(resRI2) #no sex effect
+
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix, random=list(~1|Study_ID, ~1|Strain), mods=~factor(Offspr_sex), data=data, method="REML", struct="UN")
+summary(resRI2) #no sex effect
+
+#resRI2_M <- rma(yi=RelIntake2_Hd, vi=RelIntake2_matrix, data=data, measure="GEN", method="REML",subset=(Offspr_sex=="M"))#single-sex subset (needs new VC matrix!)
+
+#choice vs. chow diets only
+resRI2_M <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix, random=list(~1|Study_ID, ~1|Strain), mods=~factor(Dam_choice_diet), data=data, method="REML", struct="UN")
+summary(resRI2_M) #no diff if choice or chow dam diet
+
+# Mixed-effect models with strain and study as random factors 
+#(full models - in all males have the positive effect and it depends on the treatment end date (whether it goes into lactation))
+#offspring diet type as categorical predictor
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + factor(Dam_choice_diet) + factor(Offspr_diet_OB) + Z_TBodyweight_age_dPC + Z_Dam_diet_start + Z_Dam_diet_end - 1, data=data, method="REML") 
+summary(resRI2)
+
+#sex, dam diet type, offspring age and diet composition - BEST full model nr 1?
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + factor(Dam_choice_diet) + Z_TBodyweight_age_dPC + Z_Dam_diet_start + Z_Dam_diet_end + Z_Offspr_diet_E + Z_Offspr_diet_PNP_kcal - 1, data=data, method="REML")
+summary(resRI2)
+
+#with lactation period as categorical factor  - BEST full model nr 1?
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + factor(Dam_choice_diet) + Z_TBodyweight_age_dPC + factor(Dam_diet_lactation_incl) + Z_Offspr_diet_E + Z_Offspr_diet_PNP_kcal - 1, data=data, method="REML") 
+summary(resRI2)
+
+#with dam and offspring diet-related moderators - do not use as dam diet composition is not reliable
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + factor(Dam_choice_diet) +  Z_TBodyweight_age_dPC + Z_Dam_diet_start + Z_Dam_diet_end + Z_Dam_diet_diff_E + Z_Dam_diet_diff_PNP_kcal + Z_Offspr_diet_E + Z_Offspr_diet_PNP_kcal - 1, data=data, method="REML") #adding diet properties (when available) shows that PNP matters, but diet info often missing or unreliable! - use no-choice (NC) subset next to explore diet properties effects!
+summary(resRI2)
+
+funnel(resRI2) #good funnel!
+```
+
+Metafor analyses - Allometric food intake data (RI2) - no-choice data subset  
+----------------------------------------------------------------------------
+
+```{r metafor RI2 chow, echo=FALSE, eval=TRUE, include=FALSE}
+## No-choice subset
+#exclude single FM datapoint!
+data_chow68 <- subset(data_chow, Offspr_sex!="FM") #68 ES - for analyses with offspring sex moderator!
+  
+# Without moderators and without corrections for shared control groups
+resRI2 <- rma(yi=RelIntake2_Hd, vi=RelIntake2_Hd_Var, data=data_chow68, measure="GEN", method="REML")
+summary(resRI2)
+
+# Random-effect only model with study id (all below are with corrections for shared control groups)
+#resRI2 <- rma.mv(yi=RelIntake2_Hd, V=Bodyweight_matrix, random=list(~1|Exp_ID), data=data_chow68, method="REML", struct="UN")
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix_NC, random=list(~1|Study_ID), data=data_chow68, method="REML", struct="UN")
+summary(resRI2)
+
+# Random-effect only model with study and strain (null model)
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix_NC, random=list(~1|Study_ID,~1|Strain), data=data_chow68, method="REML", struct="UN") 
+summary(resRI2) #nothing
+
+# Strain model
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix_NC, random=list(~1|Study_ID), mods = ~factor(Strain)-1, data=data_chow68, method="REML", struct="UN")
+summary(resRI2) #2 mice strain - positive large ES
+
+# Add Sex as factor
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix_NC, random=list(~1|Study_ID, ~1|Strain), mods=~factor(Offspr_sex)-1, data=data_chow68, method="REML", struct="UN")
+summary(resRI2) #nothing
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix_NC, random=list(~1|Study_ID, ~1|Strain), mods=~factor(Offspr_sex), data=data_chow68, method="REML", struct="UN")
+summary(resRI2) #nothing
+
+## Mixed-effect models with strain and study as random factors 
+# min
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix_NC, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + Z_TBodyweight_age_dPC + Z_Dam_diet_start + Z_Dam_diet_end - 1, data=data_chow68, method="REML", struct="UN") # excluding choice studies does not change the pattern of full model - M and diet_end signif. positive
+summary(resRI2) #nothing
+
+#max
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix_NC, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + Z_TBodyweight_age_dPC  + Z_Dam_diet_start + Z_Dam_diet_end +  Z_Dam_diet_exp_E + Z_Dam_diet_exp_PNP_kcal +  Z_Dam_diet_contr_E + Z_Dam_diet_contr_PNP_kcal - 1, data=data_chow68, method="REML", struct="UN")
+summary(resRI2) #nothing
+
+#reduced - use?
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix_NC, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + Z_TBodyweight_age_dPC + Z_Dam_diet_start + Z_Dam_diet_end + Z_Dam_diet_exp_E + Z_Dam_diet_exp_PNP_kcal - 1, data=data_chow68, method="REML", struct="UN")
+summary(resRI2) #nothing
+
+#cor.test(data_chow68$Z_Dam_diet_exp_E, data_chow68$Z_Dam_diet_exp_PNP_kcal)
+#par(mfrow=c(1,2),mar=c(4,4,1,1.75),oma=c(0,1,0,0))
+#plot(data_chow68$Z_Dam_diet_exp_E, data_chow68$Z_Dam_diet_exp_PNP_kcal)
+#abline(lm(data_chow68$Z_Dam_diet_exp_E ~ data_chow68$Z_Dam_diet_exp_PNP_kcal, na.action=na.omit), lwd=2) X negative corr. between E and PNP - the higher E the less protein in the diet (more fat)!
+
+#reduced - without E
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix_NC, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + Z_TBodyweight_age_dPC + Z_Dam_diet_start + Z_Dam_diet_end + Z_Dam_diet_exp_PNP_kcal - 1, data=data_chow68, method="REML", struct="UN")
+summary(resRI2) #males positive signif.
+
+#contr/exp model
+resRI2 <- rma.mv(yi=RelIntake2_Hd, V=RelIntake2_matrix_NC, random=list(~1|Study_ID, ~1|Strain), mods=~ factor(Offspr_sex) + Z_TBodyweight_age_dPC + Z_Dam_diet_start + Z_Dam_diet_end + scale(Dam_diet_contr_E) + scale(Dam_diet_contr_PNP_kcal) + scale(Dam_diet_exp_E) + scale(Dam_diet_exp_PNP_kcal) - 1, data=data_chow68, method="REML", struct="UN")
+summary(resRI2) #males pos. signif
+
+#raw data bubble plots
+par(mfrow=c(1,3),mar=c(4,4,1,1.75),oma=c(0,1,0,0))
+symbols(data_chow68$Dam_diet_exp_PNP_kcal,data_chow68$RelIntake2_Hd,circles=1/data_chow68$RelIntake2_Hd_Var_combined,inches=0.1,xlab="Dam_diet_exp_PNP_kcal",ylab="Effect size (Hedge's d)",ylim=c(-4,6))
+abline(lm(data_chow68$RelIntake2_Hd ~ data_chow68$Dam_diet_exp_PNP_kcal, na.action=na.omit), lwd=2)
+symbols(data_chow68$Dam_diet_exp_E,data_chow68$RelIntake2_Hd,circles=1/data_chow68$RelIntake2_Hd_Var_combined,inches=0.1,xlab="Dam_diet_exp_E",ylab="Effect size (Hedge's d)",ylim=c(-4,6))
+abline(lm(data_chow68$RelIntake2_Hd ~ data_chow68$Dam_diet_exp_E, na.action=na.omit), lwd=2)
+symbols(data_chow68$Dam_diet_end,data_chow68$RelIntake2_Hd,circles=1/data_chow68$RelIntake2_Hd_Var_combined,inches=0.1,xlab="Dam_diet_end",ylab="Effect size (Hedge's d)",ylim=c(-4,6))
+abline(lm(data_chow68$RelIntake2_Hd ~ data_chow68$Dam_diet_end, na.action=na.omit), lwd=2)
+
+
+#library(lattice)
+#par(mfrow=c(1,1),mar=c(4,4,1,1.75),oma=c(0,1,0,0))
+#xyplot(data_chow68$RelIntake2_Hd ~ data_chow68$Dam_diet_exp_E, type=c("smooth", "p"))
+
+confint(resRI2)
+funnel(resRI2) #very nice funnel plot!
+forest(resRI2)
+coef(resRI2)
+vcov(resRI2)
+```
+
+TO DO NEXT
+----------
+*use separate script for the bayesian (MCMCglmm) models, make tables
+*Publication bias tests
+*final figures for the MS: funnel, forest, bubble plots

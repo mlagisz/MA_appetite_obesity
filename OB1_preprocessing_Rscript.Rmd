@@ -1,0 +1,474 @@
+R script for:  
+Transgenerational effects of maternal obesogenic diet on appetite: a meta-analysis  
+========================================================
+
+  
+
+Step 1 - data preprocessing (load, clean, aggregate, merge, calculate effect sizes)  
+-----------------------
+
+* Raw data:
+
+raw_main_data_20140815_OB.csv
+raw_diet_data_20140815_OB.csv
+
+```{r start, echo=FALSE}
+rm(list=ls())
+getRversion() #3.1.1
+install.packages(c("ProjectTemplate", "knitr", "MCMCglmm", "metafor", "rmeta", "meta", "xtable",  "arm", "ade4", "psych","orthopolynom"))
+options(scipen=100)
+```
+
+* Data cleaning:  
+
+Check for:
+- records with N of dams used < 3 (none!), 
+- offspring body weight missing (none!),  
+- dams were on both nutrient manipulation and caloric restriction (7) - need to be removed,  
+- offspring on choice diets when measured (24) - need to be removed.  
+ 
+  
+```{r clan data, echo=FALSE}
+raw.data <- read.csv(file = "raw_main_data_20140815_OB.csv") 
+#names(raw.data)
+dim(raw.data) # 574 obs of 85 vars
+
+dim(raw.data[raw.data$AbsIntake_N_contr<3 | raw.data$AbsIntake_N_exp<3, ]) # no records with N < 3
+dim(raw.data[is.na(raw.data$Bodyweight_mean_contr), ]) ## no records with missing body weights
+
+dim(raw.data[raw.data$Dam_caloric_restr==1, ]) ## 7 records with maternal caloric restriction (Shankar 2008, White 2009)
+raw.data <- raw.data[-which(raw.data$Dam_caloric_restr==1), ] #remove these records
+
+dim(raw.data[raw.data$Offspr_choice_diet == 1, ]) # 28 records for offspring on self-selected diets (altered food preferences could bias total intake)
+raw.data <- raw.data[-which(raw.data$Offspr_choice_diet == 1), ] #remove these records
+
+length(unique(raw.data$ES_ID)) # 116 unique effect sizes from 539 observation
+```
+
+Left: 574 ES, but many from time-series, which need to be aggregated next.  
+  
+
+* Aggregating time series-type data by ES_ID:  
+
+Have to use different functions for different columns:  
+
+a) use mean for numeric outcomes and sample sizes  
+```{r aggregate, echo=FALSE}
+aMeans <- aggregate(data.frame(
+  raw.data$Bodyweight_mean_contr, raw.data$Bodyweight_N_contr, raw.data$Bodyweight_mean_exp, raw.data$Bodyweight_N_exp,
+  raw.data$AbsIntake_mean_contr, raw.data$AbsIntake_N_contr, raw.data$AbsIntake_mean_exp, raw.data$AbsIntake_N_exp,
+  raw.data$RelIntake_mean_contr, raw.data$RelIntake_N_contr, raw.data$RelIntake_mean_exp, raw.data$RelIntake_N_exp,
+  raw.data$RelIntake2_mean_contr, raw.data$RelIntake2_mean_exp
+                              ), by=list(raw.data$ES_ID), FUN=mean, na.rm=FALSE)
+```
+
+b) use error propagation for SE of the outcomes  
+```{r propagate SE, echo=FALSE}
+aSEs <- aggregate(data.frame(
+  raw.data$Bodyweight_SE_contr, raw.data$Bodyweight_SE_exp,
+  raw.data$AbsIntake_SE_contr, raw.data$AbsIntake_SE_exp,
+  raw.data$RelIntake_SE_contr, raw.data$RelIntake_SE_exp,
+  raw.data$RelIntake2_SE_contr, raw.data$RelIntake2_SE_exp
+             ), by=list(raw.data$ES_ID), FUN=function(x) {sqrt(sum(x^2)/length(x))})
+```
+
+c) use max value for age at intake measurement and for age at body weight measurement, 
+then re-calculatethe duration of the period of intake measurement  
+```{r max age, echo=FALSE}
+aBWsAge <- aggregate(data.frame(raw.data$TBodyweight_age_dPC), by=list(raw.data$ES_ID), FUN=max)
+aEnds <- aggregate(raw.data$Intake_age_dPC, by=list(raw.data$ES_ID), FUN=max)
+aStarts <-aggregate(raw.data$Intake_age_dPC, by=list(raw.data$ES_ID), FUN=min)
+aFirst <-aggregate(raw.data$Intake_duration, by=list(raw.data$ES_ID), FUN=head, 1)
+aDurations<-aEnds[,2]-aStarts[,2]+aFirst[,2]
+```
+
+d) concatenate together all values for Comp_ID  
+```{r conc comp_ids, echo=FALSE}
+aComp_ID <- aggregate(Comp_ID ~ ES_ID, data = raw.data, FUN=paste, collapse=",") #OR
+#aComp_ID <- aggregate(raw.data$Comp_ID , by=list(raw.data$ES_ID),FUN=paste, collapse=",")
+#aComp_ID
+```
+
+e) use first value only for the remaining variables that will be used in the analyses (should have same values within each ES_ID)
+```{r aggregate descriptive vars, echo=FALSE}
+aOther <- aggregate(data.frame(raw.data$Exp_ID, raw.data$Study_ID, raw.data$First_author, raw.data$Year, raw.data$J_abbr_name,
+                              raw.data$animal, raw.data$Strain, raw.data$Dam_choice_diet,  raw.data$Dam_diet_code_contr, 
+                              raw.data$Dam_diet_code_exp, raw.data$Dam_diet_start_exp_dPC, raw.data$Dam_diet_end_exp_dPC,
+                              raw.data$Dam_diet_lactation_incl, raw.data$Litter_size_equalized, raw.data$Offspr_crossfosterd,
+                              raw.data$Offspr_sex, raw.data$Offspr_diet_code, raw.data$Offspr_diet_start_dPC,
+                              raw.data$Offspr_data_source, raw.data$Comments, raw.data$Comments.1, raw.data$Original_measur_units, raw.data$Suppl_files), by=list(raw.data$ES_ID), FUN=head, 1)
+```
+
+f) bind aggregated data into a data frame  
+```{r bind df, echo=FALSE}
+a <- merge(aMeans, aSEs)
+aa <- cbind(aComp_ID, a[,-1], aEnds[, 2], aDurations, aBWsAge[, 2], aOther[,-1])
+#str(aa)
+#names(aa)
+#tidy-up variable names
+names(aa) <- gsub("raw.data.", "", names(aa))
+aa$Comments <- paste(aa$Comments, aa$Comments.1, sep="; ") #join two comments columns into one
+aa <- aa[ ,-which(names(aa)=="Comments.1")]
+#names(aa)
+```
+
+g) rename variables to tidy-up  
+```{r rename vars, echo=FALSE} 
+library(reshape)
+
+aa <- rename(aa, c("aEnds[, 2]"="Intake_age_dPC"))
+aa <- rename(aa, c("aBWsAge[, 2]"="TBodyweight_age_dPC"))
+aa <- rename(aa, c("aDurations"="Intake_duration"))
+#add a column for calculated maternal diet duration 
+aa$Dam_diet_duration <- (aa$Dam_diet_end_exp_dPC-aa$Dam_diet_start_exp_dPC)
+
+data <- aa
+```
+
+h) merge with diet information dataframe, for dam and offspring diets  
+```{merge r}
+length(names(data)) #50 variables
+
+raw.diets <- read.csv(file = "raw_diet_data_20140815_OB.csv") # 147 diets
+#names(raw.diets)
+
+# calculate percent weight of carbs+fat "nonprot_pww"
+raw.diets$nonprot_pww <- raw.diets$carb_pww+raw.diets$fat_pww
+
+# calculate diet protein: non-protein macronutrient ratio expressed in kcal "PNP_ratio_kcal"
+raw.diets$PNP_ratio_kcal <- (raw.diets$prot_pww*4)/(raw.diets$carb_pww*4 + raw.diets$fat_pww*9) 
+#similar result to (raw.diets$prot_pE)/(raw.diets$carb_pE + raw.diets$fat_pE)
+
+# select diet info to be placed in the aggregated data table
+diets_abbr <- raw.diets[,c("diet_code","calc_Energy_kcal_g","prot_pE","carb_pE","fat_pE","PC_ratio","PNP_ratio","PNP_ratio_kcal","prot_pww","nonprot_pww")]
+# merge into the aggregated data table
+mdata <- merge(data, diets_abbr, by.x="Dam_diet_code_contr", by.y="diet_code", all.x = TRUE)
+dim(mdata)
+#names(mdata)
+names(mdata)[(length(names(data))+1):(length(names(mdata)))] <- c("Dam_diet_contr_E","Dam_diet_contr_protE","Dam_diet_contr_carbE","Dam_diet_contr_fatE","Dam_diet_contr_PC","Dam_diet_contr_PNP","Dam_diet_contr_PNP_kcal","Dam_diet_contr_prot_pww","Dam_diet_contr_nonprot_pww")
+mdata <- merge(mdata, diets_abbr, by.x="Dam_diet_code_exp", by.y="diet_code", all.x = TRUE)
+names(mdata)[(length(names(mdata))-8):(length(names(mdata)))] <- c("Dam_diet_exp_E","Dam_diet_exp_protE","Dam_diet_exp_carbE","Dam_diet_exp_fatE","Dam_diet_exp_PC","Dam_diet_exp_PNP","Dam_diet_exp_PNP_kcal","Dam_diet_exp_prot_pww","Dam_diet_exp_nonprot_pww")
+mdata <- merge(mdata, diets_abbr, by.x="Offspr_diet_code",by.y="diet_code", all.x = TRUE)
+names(mdata)[(length(names(mdata))-8):(length(names(mdata)))] <- c("Offspr_diet_E","Offspr_diet_protE","Offspr_diet_carbE","Offspr_diet_fatE","Offspr_diet_PC","Offspr_diet_PNP","Offspr_diet_PNP_kcal","Offspr_diet_prot_pww","Offspr_diet_nonprot_pww")
+
+dim(mdata) #116 obs. of 77 variables
+#names(mdata)
+data <- mdata[,c(4:5, 31:45, 1:3, 50:77, 6:30, 46:49)]   #re-order columns                       
+#names(data)
+```
+
+
+* Calculate effect sizes for 4 outcomes (BW, AI, RI, RI2):  
+
+```{r calc ES, echo=FALSE}
+
+#compute standard deviations
+data$Bodyweight_SD_contr <- data$Bodyweight_SE_contr*sqrt(data$Bodyweight_N_contr)
+data$Bodyweight_SD_exp <- data$Bodyweight_SE_exp*sqrt(data$Bodyweight_N_exp)
+data$AbsIntake_SD_contr <- data$AbsIntake_SE_contr*sqrt(data$AbsIntake_N_contr)
+data$AbsIntake_SD_exp <- data$AbsIntake_SE_exp*sqrt(data$AbsIntake_N_exp)
+data$RelIntake_SD_contr <- data$RelIntake_SE_contr*sqrt(data$RelIntake_N_contr)
+data$RelIntake_SD_exp <- data$RelIntake_SE_exp*sqrt(data$RelIntake_N_exp)
+data$RelIntake2_SD_contr <- data$RelIntake2_SE_contr*sqrt(data$RelIntake_N_contr)
+data$RelIntake2_SD_exp <- data$RelIntake2_SE_exp*sqrt(data$RelIntake_N_exp)
+#data$ES_ID
+
+library(compute.es)
+
+###Bodyweight
+Bodyweight_ES <- mes(data$Bodyweight_mean_exp,data$Bodyweight_mean_contr,data$Bodyweight_SD_exp,data$Bodyweight_SD_contr,data$Bodyweight_N_exp,data$Bodyweight_N_contr, dig=4)
+str(Bodyweight_ES)
+#attributes(Bodyweight_ES)
+#names(Bodyweight_ES$MeanDifference)
+#fold into columns and add to data frame:
+#data <- cbind(data,matrix(Bodyweight_ES$MeanDifference, nrow=length(data$Bodyweight_mean_exp), ncol = 4, dimnames=list(data$ES_ID,c("Bodyweight_Cd","Bodyweight_Cd_Var","Bodyweight_Hd","Bodyweight_Hd_Var")))) #the format of thw function output has changed use instead:
+data <- cbind(data, Bodyweight_ES$d, Bodyweight_ES$var.d, Bodyweight_ES$g, Bodyweight_ES$var.g)
+names(data)
+#manual computation of Cohens d using SE values - for checking -> ok!
+#data$Bodyweight_Cd <- (data$Bodyweight_mean_exp-data$Bodyweight_mean_contr)/ sqrt((((data$Bodyweight_SE_contr*sqrt(data$Bodyweight_N_contr))^2*(data$Bodyweight_N_contr-1))+((data$Bodyweight_SE_exp*sqrt(data$Bodyweight_N_exp))^2*(data$Bodyweight_N_exp-1)))/(data$Bodyweight_N_contr+data$Bodyweight_N_exp-2)) 
+
+###AbsIntake
+AbsIntake_ES <- mes(data$AbsIntake_mean_exp,data$AbsIntake_mean_contr,data$AbsIntake_SD_exp,data$AbsIntake_SD_contr,data$AbsIntake_N_exp,data$AbsIntake_N_contr, dig=4)
+#fold into columns and add to data frame:
+#data <- cbind(data,matrix(AbsIntake_ES$MeanDifference, nrow=length(data$AbsIntake_mean_exp), ncol = 4, dimnames=list(data$ES_ID,c("AbsIntake_Cd","AbsIntake_Cd_Var","AbsIntake_Hd","AbsIntake_Hd_Var"))))#the format of thw function output has changed use instead:
+data <- cbind(data, AbsIntake_ES$d, AbsIntake_ES$var.d, AbsIntake_ES$g, AbsIntake_ES$var.g)
+names(data)
+
+###RelIntake
+RelIntake_ES <- mes(data$RelIntake_mean_exp,data$RelIntake_mean_contr,data$RelIntake_SD_exp,data$RelIntake_SD_contr,data$RelIntake_N_exp,data$RelIntake_N_contr, dig=4)
+#fold into columns and add to data frame:
+#data <- cbind(data,matrix(RelIntake_ES$MeanDifference, nrow=length(data$RelIntake_mean_exp), ncol = 4, dimnames=list(data$ES_ID,c("RelIntake_Cd","RelIntake_Cd_Var","RelIntake_Hd","RelIntake_Hd_Var"))))#the format of thw function output has changed use instead:
+data <- cbind(data, RelIntake_ES$d, RelIntake_ES$var.d, RelIntake_ES$g, RelIntake_ES$var.g)
+#names(data)
+
+###RelIntake2
+RelIntake2_ES <- mes(data$RelIntake2_mean_exp,data$RelIntake2_mean_contr,data$RelIntake2_SD_exp,data$RelIntake2_SD_contr,data$RelIntake_N_exp,data$RelIntake_N_contr, dig=4)
+#fold into columns and add to data frame:
+#data <- cbind(data,matrix(RelIntake2_ES$MeanDifference, nrow=length(data$RelIntake2_mean_exp), ncol = 4, dimnames=list(data$ES_ID,c("RelIntake2_Cd","RelIntake2_Cd_Var","RelIntake2_Hd","RelIntake2_Hd_Var"))))#the format of thw function output has changed use instead:
+data <- cbind(data, RelIntake2_ES$d, RelIntake2_ES$var.d, RelIntake2_ES$g, RelIntake2_ES$var.g)
+#names(data)
+
+names(data)[match(c("Bodyweight_ES$d", "Bodyweight_ES$var.d", "Bodyweight_ES$g", "Bodyweight_ES$var.g",
+                        "AbsIntake_ES$d", "AbsIntake_ES$var.d", "AbsIntake_ES$g", "AbsIntake_ES$var.g",
+                        "RelIntake_ES$d", "RelIntake_ES$var.d", "RelIntake_ES$g", "RelIntake_ES$var.g",
+                        "RelIntake2_ES$d", "RelIntake2_ES$var.d", "RelIntake2_ES$g", "RelIntake2_ES$var.g"),
+                      names(data))] <- c("Bodyweight_Cd","Bodyweight_Cd_Var","Bodyweight_Hd","Bodyweight_Hd_Var",
+                                             "AbsIntake_Cd","AbsIntake_Cd_Var","AbsIntake_Hd","AbsIntake_Hd_Var",
+                                             "RelIntake_Cd","RelIntake_Cd_Var","RelIntake_Hd","RelIntake_Hd_Var",
+                                             "RelIntake2_Cd","RelIntake2_Cd_Var","RelIntake2_Hd","RelIntake2_Hd_Var")
+#names(data)
+```
+
+Dealing with shared control groups within some of the experiments:  
+----------------------
+Calculate adjusted Hd variance values for experiments with shared control group.  
+
+```{r shared controls adj Var, echo=FALSE}
+#table(data$Exp_ID, data$Offspr_sex) #possibly shared control groups when N>1 (confirm by matching values for control groups)
+
+length(unique(data$Bodyweight_mean_contr)) #90
+#most likely 90 unique values, thus only 16 with shared cotrol group?
+
+#concatenate sex code with Experiment ID
+data$Exp_ID_sex <- paste(data$Exp_ID, data$Offspr_sex, sep="_")
+  
+#data$shared_control <- ifelse(data$Exp_ID_sex %in% data$Exp_ID_sex[duplicated(data$Exp_ID_sex)], 1, 0)#not taking into account whether same sex ES had same control group (with same body mass)
+#sum(data$shared_control) #70
+
+data$shared_control <- ifelse(data$Exp_ID_sex %in% data$Exp_ID_sex[duplicated(data$Exp_ID_sex)] & ave(data$Bodyweight_mean_contr, data$Exp_ID_sex, FUN=sd) == 0, 1, 0)
+sum(data$shared_control) #44
+
+#cbind(data$shared_control, data$Offspr_sex, data$Exp_ID, data$Bodyweight_mean_contr) #visual check
+
+###if NO column with control group ID present, but there is a column with 0/1 code for shared control groups, create the control group IDs using this code within each data$Exp_ID_sex
+# genearete unique ids for multiple ES within same experiments
+data$within_exp_id <- ave(data$shared_control, data$Exp_ID_sex, FUN=seq_along)
+# generate control IDs by using experiment ID, shared_control group and additional unique ids within each experiment
+data$control_id <- ifelse(data$Exp_ID_sex %in% data$Exp_ID_sex[duplicated(data$Exp_ID_sex)] & data$shared_control==1, paste(data$Exp_ID_sex, data$shared_control, "SC", sep="_"), paste(data$Exp_ID_sex, data$shared_control, data$within_exp_id, sep="_"))
+
+#cbind(data$control_id, data$shared_control, data$Offspr_sex, data$Exp_ID, data$Bodyweight_mean_contr) #visual check
+
+# calculate total number of treatment individuals used
+sum(data$Bodyweight_N_exp) #1507
+sum(data$AbsIntake_N_exp) #1351 - use for data$RelIntake2_N_exp
+
+# calculate total number of contol individuals in the data set if control sharing not taken into account
+sum(data$Bodyweight_N_contr) #1547
+sum(data$AbsIntake_N_contr) #1375
+
+# CORRECT total number of contol individuals in the data set controlling for control sharing 
+sum(data[!duplicated( data[,"control_id"]) ,"Bodyweight_N_contr" ]) #1164
+sum(data[!duplicated( data[,"control_id"]) ,"AbsIntake_N_contr" ]) #1122
+
+# calcualte the total number of individuals within an experiment, accounting for shared controls (used once!) 
+data$Bodyweight_N_total <- ave(data$Bodyweight_N_exp, data$control_id, FUN = sum) + data$Bodyweight_N_contr
+data$AbsIntake_N_total <- ave(data$AbsIntake_N_exp, data$control_id, FUN = sum) + data$AbsIntake_N_contr
+
+# calculate variance of Hd adjusted for shared control 
+data$Bodyweight_Hd_Var_adj <- 1/data$Bodyweight_N_exp + 1/data$Bodyweight_N_contr + data$Bodyweight_Hd^2/(2*data$Bodyweight_N_total)
+data$RelIntake2_Hd_Var_adj <- 1/data$AbsIntake_N_exp + 1/data$AbsIntake_N_contr + data$RelIntake2_Hd^2/(2*data$AbsIntake_N_total)
+
+# use normal variance of Hd for non-shared ES, and adjusted version for shared ES
+data$Bodyweight_Hd_Var_combined <- ifelse(data$control_id %in% data$control_id[duplicated(data$control_id)], data$Bodyweight_Hd_Var_combined <- 1/data$Bodyweight_N_exp + 1/data$Bodyweight_N_contr + data$Bodyweight_Hd^2/(2*data$Bodyweight_N_total), data$Bodyweight_Hd_Var_combined <- ((data$Bodyweight_N_contr+data$Bodyweight_N_exp)/(data$Bodyweight_N_contr*data$Bodyweight_N_exp)) + ((data$Bodyweight_Hd^2)/(2*(data$Bodyweight_N_contr+data$Bodyweight_N_exp-2))))
+data$RelIntake2_Hd_Var_combined <- ifelse(data$control_id %in% data$control_id[duplicated(data$control_id)], data$RelIntake2_Hd_Var_combined <- 1/data$AbsIntake_N_exp + 1/data$AbsIntake_N_contr + data$RelIntake2_Hd^2/(2*data$AbsIntake_N_total), data$RelIntake2_Hd_Var_combined <- ((data$AbsIntake_N_contr+data$AbsIntake_N_exp)/(data$AbsIntake_N_contr*data$AbsIntake_N_exp)) + ((data$RelIntake2_Hd^2)/(2*(data$AbsIntake_N_contr+data$AbsIntake_N_exp-2))))
+
+# equivalent to: data$Hd_Var_combined <- ifelse(data$exp_id %in% data$exp_id[duplicated(data$exp_id)] & shared_control==1,data$Hd_Var_combined <- 1/data$Nt + 1/data$Nc + data$Cd^2/(2*data$N_total), data$Hd_Var_combined <- ((data$Nc+data$Nt)/(data$Nc*data$Nt)) + ((data$Hd^2)/(2*(data$Nc+data$Nt-2))))
+
+#names(data)
+```
+
+Create variance-covariance matrices for bodyweight and allometric intake effect sizes 
+
+```{r shared controls matrix, echo=FALSE }
+library(Matrix)
+
+# find start and end coordinates for the subsets
+shared_coord <- which(data$control_id %in% data$control_id[duplicated(data$control_id)]==TRUE)
+#shared_coord
+
+# matrix of combinations of coordinates for each experiment with shared control
+combinations <- do.call("rbind", tapply(shared_coord, data[shared_coord,"control_id"], function(x) t(combn(x,2))))
+#combinations
+
+### for Body weight :
+# create square matrix matching N of ES, filled with zeros
+Bodyweight_matrix <- matrix(0, nrow = dim(data)[1],ncol = dim(data)[1])
+rownames(Bodyweight_matrix) <- data$ES_ID
+colnames(Bodyweight_matrix) <- data$ES_ID
+
+# calculate covariance values between Hd values at the positions in shared_list and place them on the matrix
+for (i in 1:dim(combinations)[1]){
+  p1 <- combinations[i,1]
+  p2 <- combinations[i,2]
+  p1_p2_cov <- 1/data[p1,"Bodyweight_N_contr"] + (data[p1,"Bodyweight_Hd"]*data[p2,"Bodyweight_Hd"]) / (2*data[p1,"Bodyweight_N_total"])
+  Bodyweight_matrix[p1,p2] <- p1_p2_cov
+  Bodyweight_matrix[p2,p1] <- p1_p2_cov
+}
+
+# add the diagonal - use data$Bodyweight_Hd_Var_combined as matrix diagonal
+diag(Bodyweight_matrix) <-  data$Bodyweight_Hd_Var_combined
+
+### for Allometric intake (RelIntake2) (Note that sample sizes are based on these from Absolute Intake data!):
+# create square matrix matching N of ES, filled with zeros
+RelIntake2_matrix <- matrix(0, nrow = dim(data)[1],ncol = dim(data)[1])
+rownames(RelIntake2_matrix) <- data$ES_ID
+colnames(RelIntake2_matrix) <- data$ES_ID
+
+# calculate covariance values between Hd values at the positions in shared_list and place them on the matrix
+for (i in 1:dim(combinations)[1]){
+  p1 <- combinations[i,1]
+  p2 <- combinations[i,2]
+  p1_p2_cov <- 1/data[p1,"AbsIntake_N_contr"] + (data[p1,"RelIntake2_Hd"]*data[p2,"RelIntake2_Hd"]) / (2*data[p1,"AbsIntake_N_total"])
+  RelIntake2_matrix[p1,p2] <- p1_p2_cov
+  RelIntake2_matrix[p2,p1] <- p1_p2_cov
+}
+
+# add the diagonal - use data$RelIntake2_Hd_Var_combined as matrix diagonal
+diag(RelIntake2_matrix) <-  data$RelIntake2_Hd_Var_combined
+
+#save both matrices as R data objects
+save(RelIntake2_matrix,Bodyweight_matrix, file = "VC_matrices.RData")
+#load(file = "VC_matrices.RData")
+```
+
+
+Scale and center continuous moderators
+-----------------------------
+
+```{r scale cont moderators, echo=FALSE}
+#names(data)
+
+#par(mfrow=c(4,3),bty="l",lwd=1) # mostly look ok
+#hist(data$TBodyweight_age_dPC)
+#hist(data$Intake_age_dPC)
+#hist(data$Dam_diet_start_exp_dPC)
+#hist(data$Dam_diet_end_exp_dPC)
+#hist(data$Dam_diet_duration)
+#hist(data$Dam_diet_contr_E)
+#hist(data$Dam_diet_exp_E)
+#hist(data$Dam_diet_contr_PNP_kcal)
+#hist(data$Dam_diet_exp_PNP_kcal)
+#hist(data$Offspr_diet_E)
+#hist(data$Offspr_diet_PNP_kcal)
+#hist(data$Year)
+
+#scale:
+data$Z_TBodyweight_age_dPC <- scale(data$TBodyweight_age_dPC)
+data$Z_Intake_age_dPC <- scale(data$Intake_age_dPC)
+data$Z_Dam_diet_start <- scale(data$Dam_diet_start_exp_dPC)
+data$Z_Dam_diet_end <- scale(data$Dam_diet_end_exp_dPC)
+data$Z_Dam_diet_duration <- scale(data$Dam_diet_duration)
+data$Z_Dam_diet_contr_E <- scale(data$Dam_diet_contr_E)
+data$Z_Dam_diet_exp_E <- scale(data$Dam_diet_exp_E) # values missing
+data$Z_Dam_diet_contr_PNP_kcal <- scale(data$Dam_diet_contr_PNP_kcal)
+data$Z_Dam_diet_exp_PNP_kcal <- scale(data$Dam_diet_exp_PNP_kcal) # values missing
+data$Z_Offspr_diet_E <- scale(data$Offspr_diet_E)
+data$Z_Offspr_diet_PNP_kcal <- scale(data$Offspr_diet_PNP_kcal)
+data$Z_Year <- scale(data$Year)
+
+data$Dam_diet_diff_E <- (data$Dam_diet_exp_E-data$Dam_diet_contr_E)/data$Dam_diet_contr_E*100 # diffference as %
+data$Dam_diet_diff_PNP_kcal <- (data$Dam_diet_exp_PNP_kcal-data$Dam_diet_contr_PNP_kcal)/data$Dam_diet_contr_PNP_kcal*100 # diffference as %
+
+data$Z_Dam_diet_diff_E <- scale(data$Dam_diet_diff_E)#some values missing
+data$Z_Dam_diet_diff_PNP_kcal <- scale(-(data$Dam_diet_diff_PNP_kcal)) #some values missing
+
+#scaled diets properties
+#pairs.panels(~Z_Dam_diet_contr_E+Z_Dam_diet_contr_PNP_kcal+Z_Dam_diet_exp_E+Z_Dam_diet_exp_PNP_kcal+Z_Dam_diet_diff_E+Z_Dam_diet_diff_PNP_kcal+Z_Offspr_diet_E+Z_Offspr_diet_PNP_kcal, main = "Correlations between scaled diet predictors",lm=TRUE, ellipses=FALSE, jiggle=TRUE,data=data)
+
+#make new column - whether offspring was on obesogenic diet (higher E than control dams)
+data$Offspr_diet_OB <- (data$Offspr_diet_E - data$Dam_diet_contr_E > 0) #19 TRUE
+
+#write.csv(data, file = "data.csv")
+#data <- read.csv(file = "data.csv")
+
+save(data, file = "data.RData")
+#load(file = "data.RData")
+```
+
+
+Dam no-choice diet data subset (NC)
+-----------------------------
+
+```{r create NC subset, echo=FALSE}
+data_NC <- subset(data, Dam_choice_diet=="0")
+table(data_NC$Offspr_sex) # F 19, FM 1, M 49 - exclude FM as only 1 ES left!
+data_NC <- subset(data_NC, Offspr_sex!="FM")
+
+#re-scale continuous moderators
+data_NC$Z_TBodyweight_age_dPC <- scale(data_NC$TBodyweight_age_dPC)
+data_NC$Z_Intake_age_dPC <- scale(data_NC$Intake_age_dPC)
+data_NC$Z_Dam_diet_start <- scale(data_NC$Dam_diet_start_exp_dPC)
+data_NC$Z_Dam_diet_end <- scale(data_NC$Dam_diet_end_exp_dPC)
+data_NC$Z_Dam_diet_duration <- scale(data_NC$Dam_diet_duration)
+data_NC$Z_Dam_diet_contr_E <- scale(data_NC$Dam_diet_contr_E)
+data_NC$Z_Dam_diet_exp_E <- scale(data_NC$Dam_diet_exp_E) # values missing
+data_NC$Z_Dam_diet_contr_PNP_kcal <- scale(data_NC$Dam_diet_contr_PNP_kcal)
+data_NC$Z_Dam_diet_exp_PNP_kcal <- scale(data_NC$Dam_diet_exp_PNP_kcal) # values missing
+data_NC$Z_Offspr_diet_E <- scale(data_NC$Offspr_diet_E)
+data_NC$Z_Offspr_diet_PNP_kcal <- scale(data_NC$Offspr_diet_PNP_kcal)
+data_NC$Z_Year <- scale(data_NC$Year)
+data_NC$Z_Dam_diet_diff_E <- scale(data_NC$Dam_diet_diff_E)#some values missing
+data_NC$Z_Dam_diet_diff_PNP_kcal <- scale(-(data_NC$Dam_diet_diff_PNP_kcal)) #some values missing
+
+
+#write.csv(data_NC, file = "data_NC.csv")
+#data_NC <- read.csv(file = "data_NC.csv")
+
+save(data_NC, file = "data_NC.RData")
+#load(file = "data_NC.RData")
+```
+
+Create variance-covariance matrices for bodyweight and allometric intake effect sizes 
+
+```{r NC shared controls matrix, echo=FALSE }
+#library(Matrix)
+
+# find start and end coordinates for the subsets
+shared_coord <- which(data_NC$control_id %in% data_NC$control_id[duplicated(data_NC$control_id)]==TRUE)
+#shared_coord
+
+# matrix of combinations of coordinates for each experiment with shared control
+combinations <- do.call("rbind", tapply(shared_coord, data_NC[shared_coord,"control_id"], function(x) t(combn(x,2))))
+#combinations
+
+### for Body weight :
+# create square matrix matching N of ES, filled with zeros
+Bodyweight_matrix_NC <- matrix(0, nrow = dim(data_NC)[1],ncol = dim(data_NC)[1])
+rownames(Bodyweight_matrix_NC) <- data_NC$ES_ID
+colnames(Bodyweight_matrix_NC) <- data_NC$ES_ID
+
+# calculate covariance values between Hd values at the positions in shared_list and place them on the matrix
+for (i in 1:dim(combinations)[1]){
+  p1 <- combinations[i,1]
+  p2 <- combinations[i,2]
+  p1_p2_cov <- 1/data_NC[p1,"Bodyweight_N_contr"] + (data_NC[p1,"Bodyweight_Hd"]*data_NC[p2,"Bodyweight_Hd"]) / (2*data_NC[p1,"Bodyweight_N_total"])
+  Bodyweight_matrix_NC[p1,p2] <- p1_p2_cov
+  Bodyweight_matrix_NC[p2,p1] <- p1_p2_cov
+}
+
+# add the diagonal - use data_NC$Bodyweight_Hd_Var_combined as matrix diagonal
+diag(Bodyweight_matrix_NC) <-  data_NC$Bodyweight_Hd_Var_combined
+
+### for Allometric intake (RelIntake2) (Note that sample sizes are based on these from Absolute Intake data!):
+# create square matrix matching N of ES, filled with zeros
+RelIntake2_matrix_NC <- matrix(0, nrow = dim(data_NC)[1],ncol = dim(data_NC)[1])
+rownames(RelIntake2_matrix_NC) <- data_NC$ES_ID
+colnames(RelIntake2_matrix_NC) <- data_NC$ES_ID
+
+# calculate covariance values between Hd values at the positions in shared_list and place them on the matrix
+for (i in 1:dim(combinations)[1]){
+  p1 <- combinations[i,1]
+  p2 <- combinations[i,2]
+  p1_p2_cov <- 1/data_NC[p1,"AbsIntake_N_contr"] + (data_NC[p1,"RelIntake2_Hd"]*data_NC[p2,"RelIntake2_Hd"]) / (2*data_NC[p1,"AbsIntake_N_total"])
+  RelIntake2_matrix_NC[p1,p2] <- p1_p2_cov
+  RelIntake2_matrix_NC[p2,p1] <- p1_p2_cov
+}
+
+# add the diagonal - use data_NC$RelIntake2_Hd_Var_combined as matrix diagonal
+diag(RelIntake2_matrix_NC) <-  data_NC$RelIntake2_Hd_Var_combined
+
+#save both matrices as R data objects
+save(RelIntake2_matrix_NC,Bodyweight_matrix_NC, file = "VC_matrices_NC.RData")
+#load(file = "VC_matrices_NC.RData")
+```
+

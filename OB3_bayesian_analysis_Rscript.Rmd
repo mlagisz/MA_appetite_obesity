@@ -1,0 +1,2288 @@
+R script for:
+Transgenerational effects of maternal obesogenic diet on appetite: a meta-analysis  
+========================================================
+
+Step 3 - Bayesian models runs and results  
+-----------------------------------------
+
+```{r start, echo=FALSE, message=FALSE, eval=TRUE, include=FALSE}
+options(scipen=100)
+#getRversion() #3.1.1
+
+install.packages(c("ProjectTemplate", "knitr", "MCMCglmm", "metafor", "rmeta", "meta", "xtable",  "arm", "ade4", "psych","orthopolynom"))
+library('ProjectTemplate')
+load.project()
+#project.info$data
+library(MCMCglmm)
+library(knitr)
+```
+
+
+Create chow diet subset.
+```{r chow diets subset, echo=FALSE, eval=TRUE, include=FALSE}
+load("data.RData")
+#create chow diet (no-choice) data subset
+data_chow <- data[data$Dam_choice_diet == "0",] #69 ES
+#data_chow <- subset(data_chow, Dam_choice_diet=="0")
+#data_chow68 <- subset(data_chow, Offspr_sex!="FM") #68 ES - for analyses with offspring sex moderator!
+data_NC <- subset(data_chow, Offspr_sex!="FM") #68 ES - for analyses with offspring sex moderator!
+#write.csv(data_chow,"NM_overfeeding_NCsubset.csv")
+#data_chow <- read.csv("NM_overfeeding_NCsubset.csv")
+```
+
+
+### MCMCglmm
+
+Use strains not species as random effect, because there are 8 strains but only 2 species .
+We will run a separate model with strains as fixed effects.
+
+
+Allometrically adjusted food intake - RelIntake2 (RI2)
+-----------------------------------------------------
+
+Define full dataset variables.
+```{r RI2 full data, echo=FALSE, eval=TRUE, include=FALSE}
+d <- data$RelIntake2_Hd
+vofd <- data$RelIntake2_Hd_Var_adj
+m <- RelIntake2_matrix
+AinvG <- solve(m)
+AnivG <- as(AinvG,"dgCMatrix")
+```
+
+# RI2 - Null model for the full data set.
+
+Run models.
+```{r null model RI2 full data, echo=FALSE, eval=FALSE, include=FALSE}
+##test runs - without VCV matrix
+#m0.0<-MCMCglmm(d~1,random=~Study_ID+Strain,family="gaussian",data=data,verbose=T,mev=vofd,nitt=200000,thin=25,burnin=25000,pr=T) #use stronger prior!
+#prior1 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002))) #inverse-Gamma piror (slightly informative) - the default is non-informative prior
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain,family="gaussian",data=data,verbose=T,mev=vofd,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior1)
+#prior2 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=1,alpha.mu=0,alpha.V=1000),G2=list(V=1,nu=1,alpha.mu=0,alpha.V=1000))) # parameter expanded prior (close to non-informative)
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain,family="gaussian",data=data,verbose=T,mev=vofd,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior2)
+##test runs - with VCV matrix
+#prior3 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior3)
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+#prior4 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=1,alpha.mu=0,alpha.V=1000),G2=list(V=1,nu=1,alpha.mu=0,alpha.V=1000),G3=list(V=1,fix=1))) #parameter expanded prior with AnivG
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior4)
+#summary(m0.0)
+#plot(m0.0)
+
+
+##long runs
+prior3 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+model_null_RI2_full_1 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_null_RI2_full_2 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_null_RI2_full_3 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+save(model_null_RI2_full_1,model_null_RI2_full_2,model_null_RI2_full_3,file="model_null_RI2_full.RData") 
+```
+
+Get results.
+```{r null model RI2 full data results, echo=FALSE, eval=TRUE, include=FALSE}
+load("model_null_RI2_full.RData")
+m1 <- model_null_RI2_full_1
+m2 <- model_null_RI2_full_2
+m3 <- model_null_RI2_full_3
+
+#check model convergence
+gelman.diag(list(m1$Sol[,1],m2$Sol[,1],m3$Sol[,1])) #The shrink factors should be below 1.05
+gelman.diag(list(m1$VCV[,c(1,2)],m2$VCV[,c(1,2)],m3$VCV[,c(1,2)]))
+gelman.diag(list(m1$Deviance,m2$Deviance,m3$Deviance))
+#check chain autocorrelation
+autocorr(m1$Sol[,c(4)])
+autocorr(m1$VCV[,c(1:2)])
+autocorr(m2$Sol[,c(4)])
+autocorr(m2$VCV[,c(1:2)])
+autocorr(m3$Sol[,c(4)])
+autocorr(m3$VCV[,c(1:2)])
+#extract and summarise DIC
+print(c(m1$DIC,m2$DIC,m3$DIC))
+mean(c(m1$DIC, m2$DIC, m3$DIC)) 
+range(c(m1$DIC, m2$DIC, m3$DIC))  
+
+chosen <- m3
+
+plot(chosen)
+summary(chosen)
+
+### heterogeneity and variances
+WI <- na.omit(1/data$RelIntake2_Hd_Var_adj) 
+s2I <- sum(WI*(length(WI)-1))/(sum(WI)^2-sum(WI^2)) # typical sampling (measurement) error variance (sigma2m)
+total_var <- chosen$VCV[,"Study_ID"]+chosen$VCV[,"Strain"]+chosen$VCV[,"units"]+s2I # total variance (sigma2t)
+total_het <- (total_var-s2I)/total_var # total heterogeneity I2
+#for pasting into Excel table
+Study_ID <- round(c(summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Study_ID"]/total_var)*100),1)
+Strain <- round(c(summary(chosen$VCV[,"Strain"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Strain"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Strain"]/total_var)*100),1)
+units <- round(c(summary(chosen$VCV[,"units"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"units"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"units"]/total_var)*100),1)
+total <- round(c(summary(total_het)$statistics[1]*100,summary(total_het)$statistics[2]*100,posterior.mode(total_het)*100),1)
+res_df <- t(data.frame(Study_ID=Study_ID,Strain=Strain,units=units,total=total))
+# version with mean and range for DIC
+res_df<-format(res_df, nsmall = 2)
+DICs <- c(m1$DIC, m2$DIC, m3$DIC)
+DICmean <- format(round(mean(DICs),2), nsmall = 2)
+DICrange <- paste0(format(round(range(DICs)[1],2), nsmall = 2)," - ",format(round(range(DICs)[2],2), nsmall = 2))
+res_df <- t(c(paste0(DICmean, "(", DICrange, ")"),
+            paste0(res_df[1,1],"(",res_df[1,2],")[",res_df[1,3],"]"),
+            paste0(res_df[2,1],"(",res_df[2,2],")[",res_df[2,3],"]"),
+            paste0(res_df[3,1],"(",res_df[3,2],")[",res_df[3,3],"]"),
+            paste0(res_df[4,1],"(",res_df[4,2],")[",res_df[4,3],"]")))
+colnames(res_df) <- c("DIC (DIC range)","I2study","I2strain","I2residual","I2total")
+rownames(res_df) <- "mean(SD)[mode]"
+write.csv(res_df,"results_table_model_null_RI2_full.csv")
+
+### fixed effects (overall intercept)
+interc <- c(posterior.mode(chosen$Sol[,1]),summary(chosen$Sol[,1])$statistics[1],summary(chosen$Sol)$statistics[2],HPDinterval(chosen$Sol[,1])[1],HPDinterval(chosen$Sol[,1])[2])
+interc <- as.data.frame(t(interc))
+rownames(interc) <- c("intercept")
+write.table(t(c("Fixed effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_null_RI2_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(round(interc,3),"results_table_model_null_RI2_full.csv", sep=",", col.names = FALSE, append = TRUE)
+
+### random effects
+Mode <- posterior.mode(chosen$VCV)
+Mean <- summary(chosen$VCV)$statistics[,1]
+SD <- summary(chosen$VCV)$statistics[,2]
+Lower <- HPDinterval(chosen$VCV)[,1]
+Upper <- HPDinterval(chosen$VCV)[,2]
+res_df <- data.frame(Mode=Mode,Mean=Mean,SD=SD,Lower=Lower,Upper=Upper)
+res_df <- res_df[-(dim(res_df)[1]-1),]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Study_ID","Strain","residuals")
+write.table(t(c("Random effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_null_RI2_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_null_RI2_full.csv", sep=",", col.names = FALSE, append = TRUE)
+```
+
+Table.
+```{r null model RI2 full data table, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table <- read.table("results_table_model_null_RI2_full.csv", sep=",")
+#table
+kable(table, digits = 3)
+```
+
+# RI2 - Strain model for the full data set.
+
+Run models.
+```{r strain model RI2 full data, echo=FALSE, eval=FALSE, include=FALSE}
+prior3s <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+#test run
+#m0.0<-MCMCglmm(d~Strain-1,random=~Study_ID+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior3s)
+#summary(m0.0)
+#long runs
+model_strain_RI2_full_1 <- MCMCglmm(d~Strain-1,random=~Study_ID+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3s)
+model_strain_RI2_full_2 <- MCMCglmm(d~Strain-1,random=~Study_ID+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3s)
+model_strain_RI2_full_3 <- MCMCglmm(d~Strain-1,random=~Study_ID+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3s)
+save(model_strain_RI2_full_1,model_strain_RI2_full_2,model_strain_RI2_full_3,file="model_strain_RI2_full.RData") 
+```
+
+Get results.
+```{r strain model RI2 full data results, echo=FALSE, eval=TRUE, include=FALSE}
+load("model_strain_RI2_full.RData")
+m1 <- model_strain_RI2_full_1
+m2 <- model_strain_RI2_full_2
+m3 <- model_strain_RI2_full_3
+
+#check model convergence
+gelman.diag(list(m1$Sol[,1],m2$Sol[,1],m3$Sol[,1])) #The shrink factors should be below 1.05
+gelman.diag(list(m1$VCV[,c(1,3)],m2$VCV[,c(1,3)],m3$VCV[,c(1,3)])) 
+gelman.diag(list(m1$Deviance,m2$Deviance,m3$Deviance))
+#check chain autocorrelation
+autocorr(m1$Sol[,c(2)])
+autocorr(m1$VCV[,c(1)])
+autocorr(m2$Sol[,c(2)])
+autocorr(m2$VCV[,c(1)])
+autocorr(m3$Sol[,c(2)])
+autocorr(m3$VCV[,c(1)])
+#extract and summarise DIC
+print(c(m1$DIC,m2$DIC,m3$DIC))
+mean(c(m1$DIC, m2$DIC, m3$DIC)) 
+range(c(m1$DIC, m2$DIC, m3$DIC))  
+
+chosen <- m1
+
+plot(chosen)
+summary(chosen)
+
+### heterogeneity and variances
+WI <- na.omit(1/data$RelIntake2_Hd_Var_adj) 
+s2I <- sum(WI*(length(WI)-1))/(sum(WI)^2-sum(WI^2)) # typical sampling (measurement) error variance (sigma2m)
+total_var <- chosen$VCV[,"Study_ID"]+chosen$VCV[,"units"]+s2I # total variance (sigma2t)
+total_het <- (total_var-s2I)/total_var # total heterogeneity I2
+#for pasting into Excel table
+Study_ID <- round(c(summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Study_ID"]/total_var)*100),1)
+units <- round(c(summary(chosen$VCV[,"units"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"units"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"units"]/total_var)*100),1)
+total <- round(c(summary(total_het)$statistics[1]*100,summary(total_het)$statistics[2]*100,posterior.mode(total_het)*100),1)
+res_df <- t(data.frame(Study_ID=Study_ID,units=units,total=total))
+# version with mean and range for DIC
+res_df <- format(res_df, nsmall = 2)
+DICs <- c(m1$DIC, m2$DIC, m3$DIC)
+DICmean <- format(round(mean(DICs),2), nsmall = 2)
+DICrange <- paste0(format(round(range(DICs)[1],2), nsmall = 2)," - ",format(round(range(DICs)[2],2), nsmall = 2))
+res_df <- t(c(paste0(DICmean, "(", DICrange, ")"),
+            paste0(res_df[1,1],"(",res_df[1,2],")[",res_df[1,3],"]"),
+            paste0(res_df[2,1],"(",res_df[2,2],")[",res_df[2,3],"]"),
+            paste0(res_df[3,1],"(",res_df[3,2],")[",res_df[3,3],"]"), " "))
+colnames(res_df) <- c("DIC (DIC range)","I2study","I2residual","I2total", " ")
+rownames(res_df) <- "mean(SD)[mode]"
+write.csv(res_df,"results_table_model_strain_RI2_full.csv")
+
+### fixed effects (8 strains)
+#posterior.mode(chosen$Sol)[1:8]  
+#summary(chosen$Sol[,1:8])$statistics[,1]   
+#HPDinterval(chosen$Sol[,1:8])
+mod <- posterior.mode(chosen$Sol)[1:8]
+av <- summary(chosen$Sol[,1:8])$statistics[,1]
+sd <- summary(chosen$Sol[,1:8])$statistics[,2]
+HPDlo <- HPDinterval(chosen$Sol[,1:8])[,1]
+HPDhi <- HPDinterval(chosen$Sol[,1:8])[,2]
+res_df <- data.frame(Mode=mod,Mean=av,SD=sd,Lower=HPDlo,Upper=HPDhi)
+res_df <- res_df[c(7,8,5,1,2,4,3,6),] #reorder strains
+res_df <- round(res_df,3)
+rownames(res_df) <- c("rat Sprague-Dawley","rat Wistar","rat Long-Evans","mouse C57BL/6","mouse C57BL/6J","mouse ICR","mouse FVB","mouse NMRI" )
+write.table(t(c("Fixed effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_strain_RI2_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_strain_RI2_full.csv", sep=",", col.names = FALSE, append = TRUE)
+
+# random effects
+#posterior.mode(chosen$VCV) #mode
+#summary(chosen$VCV) #mean, SD
+#HPDinterval(chosen$VCV) #HPD interval
+Mode <- posterior.mode(chosen$VCV)
+Mean <- summary(chosen$VCV)$statistics[,1]
+SD <- summary(chosen$VCV)$statistics[,2]
+Lower <- HPDinterval(chosen$VCV)[,1]
+Upper <- HPDinterval(chosen$VCV)[,2]
+res_df <- data.frame(Mode=Mode,Mean=Mean,SD=SD,Lower=Lower,Upper=Upper)
+res_df <- res_df[-(dim(res_df)[1]-1),]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Study_ID","residuals")
+write.table(t(c("Random effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_strain_RI2_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_strain_RI2_full.csv", sep=",", col.names = FALSE, append = TRUE)
+```
+
+Table.
+```{r strain model RI2 full data table, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table <- read.table("results_table_model_strain_RI2_full.csv", sep=",")
+#table
+kable(table, digits = 3)
+```
+
+# RI2 - full1 model for the full data set (with diet stat and end dates)
+
+Run models.
+```{r full1 model RI2 full data, echo=FALSE, eval=FALSE, include=FALSE}
+prior3 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+
+#test run
+#m0.0 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_choice_diet)+Z_Dam_diet_start+Z_Dam_diet_end+Z_Offspr_diet_E+Z_Offspr_diet_PNP_kcal+Z_Intake_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior3)
+#summary(m0.0)
+
+#long runs
+model_full1_RI2_full_1 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_choice_diet)+Z_Dam_diet_start+Z_Dam_diet_end+Z_Offspr_diet_E+Z_Offspr_diet_PNP_kcal+Z_Intake_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_full1_RI2_full_2 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_choice_diet)+Z_Dam_diet_start+Z_Dam_diet_end+Z_Offspr_diet_E+Z_Offspr_diet_PNP_kcal+Z_Intake_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_full1_RI2_full_3 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_choice_diet)+Z_Dam_diet_start+Z_Dam_diet_end+Z_Offspr_diet_E+Z_Offspr_diet_PNP_kcal+Z_Intake_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+save(model_full1_RI2_full_1,model_full1_RI2_full_2,model_full1_RI2_full_3,file="model_full1_RI2_full.RData") 
+```
+
+Get results.
+```{r full1 model RI2 full data results, echo=FALSE, eval=TRUE, include=FALSE}
+load("model_full1_RI2_full.RData")
+m1 <- model_full1_RI2_full_1
+m2 <- model_full1_RI2_full_2
+m3 <- model_full1_RI2_full_3
+
+gelman.diag(list(m1$Sol[,1],m2$Sol[,1],m3$Sol[,1])) #The shrink factors should be below 1.05
+gelman.diag(list(m1$VCV[,c(1,2)],m2$VCV[,c(1,2)],m3$VCV[,c(1,2)]))
+gelman.diag(list(m1$Deviance,m2$Deviance,m3$Deviance))
+#check chain autocorrelation
+autocorr(m1$Sol[,c(4)])
+autocorr(m1$VCV[,c(1:2)])
+autocorr(m2$Sol[,c(4)])
+autocorr(m2$VCV[,c(1:2)])
+autocorr(m3$Sol[,c(4)])
+autocorr(m3$VCV[,c(1:2)])
+#extract and summarise DIC
+print(c(m1$DIC,m2$DIC,m3$DIC))
+mean(c(m1$DIC, m2$DIC, m3$DIC)) 
+range(c(m1$DIC, m2$DIC, m3$DIC))  
+
+chosen <- m1
+
+plot(chosen)
+summary(chosen)
+
+### heterogeneity and variances
+WI <- na.omit(1/data$RelIntake2_Hd_Var_adj) 
+s2I <- sum(WI*(length(WI)-1))/(sum(WI)^2-sum(WI^2)) # typical sampling (measurement) error variance (sigma2m)
+total_var <- chosen$VCV[,"Study_ID"]+chosen$VCV[,"Strain"]+chosen$VCV[,"units"]+s2I # total variance (sigma2t)
+total_het <- (total_var-s2I)/total_var # total heterogeneity I2
+#for pasting into Excel table
+Study_ID <- round(c(summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Study_ID"]/total_var)*100),1)
+Strain <- round(c(summary(chosen$VCV[,"Strain"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Strain"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Strain"]/total_var)*100),1)
+units <- round(c(summary(chosen$VCV[,"units"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"units"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"units"]/total_var)*100),1)
+total <- round(c(summary(total_het)$statistics[1]*100,summary(total_het)$statistics[2]*100,posterior.mode(total_het)*100),1)
+res_df <- t(data.frame(Study_ID=Study_ID,Strain=Strain,units=units,total=total))
+# version with mean and range for DIC
+res_df <- format(res_df, nsmall = 2)
+DICs <- c(m1$DIC, m2$DIC, m3$DIC)
+DICmean <- format(round(mean(DICs),2), nsmall = 2)
+DICrange <- paste0(format(round(range(DICs)[1],2), nsmall = 2)," - ",format(round(range(DICs)[2],2), nsmall = 2))
+res_df <- t(c(paste0(DICmean, "(", DICrange, ")"),
+            paste0(res_df[1,1],"(",res_df[1,2],")[",res_df[1,3],"]"),
+            paste0(res_df[2,1],"(",res_df[2,2],")[",res_df[2,3],"]"),
+            paste0(res_df[3,1],"(",res_df[3,2],")[",res_df[3,3],"]"),
+            paste0(res_df[4,1],"(",res_df[4,2],")[",res_df[4,3],"]")))
+colnames(res_df) <- c("DIC (DIC range)","I2study","I2strain","I2residual","I2total")
+rownames(res_df) <- "mean(SD)[mode]"
+write.csv(res_df,"results_table_model_full1_RI2_full.csv")
+
+### fixed effects (moderators)
+#posterior.mode(chosen$Sol)[1:9]  
+#summary(chosen$Sol[,1:9])$statistics[,1]   
+#HPDinterval(chosen$Sol[,1:9])
+mod <- posterior.mode(chosen$Sol)[1:9]
+av <- summary(chosen$Sol[,1:9])$statistics[,1]
+sd <- summary(chosen$Sol[,1:9])$statistics[,2]
+HPDlo <- HPDinterval(chosen$Sol[,1:9])[,1]
+HPDhi <- HPDinterval(chosen$Sol[,1:9])[,2]
+res_df <- data.frame(Mode=mod,Mean=av,SD=sd,Lower=HPDlo,Upper=HPDhi)
+res_df <- res_df[c(1,3,2,4,5,6,7,8,9),] #reorder moderators
+#res_df <- res_df[-(dim(res_df)[1]-1),]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Offspr. female (interc.)","Offspr. male (interc.)","Offspr. both sex (interc.)","Choice-chow dam diet (diff.)","Dam diet start time","Dam diet end time","Offspr. diet E","Offspr diet P:NP","Offspr. age" )
+write.table(t(c("Fixed effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_full1_RI2_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_full1_RI2_full.csv", sep=",", col.names = FALSE, append = TRUE)
+
+### random effects
+Mode <- posterior.mode(chosen$VCV)
+Mean <- summary(chosen$VCV)$statistics[,1]
+SD <- summary(chosen$VCV)$statistics[,2]
+Lower <- HPDinterval(chosen$VCV)[,1]
+Upper <- HPDinterval(chosen$VCV)[,2]
+res_df <- data.frame(Mode=Mode,Mean=Mean,SD=SD,Lower=Lower,Upper=Upper)
+res_df <- res_df[-3,]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Study_ID","Strain","residuals")
+write.table(t(c("Random effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_full1_RI2_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_full1_RI2_full.csv", sep=",", col.names = FALSE, append = TRUE)
+```
+
+Table.
+```{r full1 model RI2 full data table, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table <- read.table("results_table_model_full1_RI2_full.csv", sep=",")
+#table
+kable(table, digits = 3)
+```
+
+
+# RI2 - full2 model for the full data set (timing of the diet as categorical variable: lactation included or not)
+
+Run models.
+```{r full2 model RI2 full data, echo=FALSE, eval=FALSE, include=FALSE}
+prior3 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+
+#test run
+#m0.0 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_choice_diet)+factor(Dam_diet_lactation_incl)+Z_Offspr_diet_E+Z_Offspr_diet_PNP_kcal+Z_Intake_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior3)
+#summary(m0.0)
+
+#long runs
+model_full2_RI2_full_1 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_choice_diet)+factor(Dam_diet_lactation_incl)+Z_Offspr_diet_E+Z_Offspr_diet_PNP_kcal+Z_Intake_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_full2_RI2_full_2 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_choice_diet)+factor(Dam_diet_lactation_incl)+Z_Offspr_diet_E+Z_Offspr_diet_PNP_kcal+Z_Intake_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_full2_RI2_full_3 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_choice_diet)+factor(Dam_diet_lactation_incl)+Z_Offspr_diet_E+Z_Offspr_diet_PNP_kcal+Z_Intake_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+save(model_full2_RI2_full_1,model_full2_RI2_full_2,model_full2_RI2_full_3,file="model_full2_RI2_full.RData") 
+```
+
+Get results.
+```{r full2 model RI2 full data results, echo=FALSE, eval=TRUE, include=FALSE}
+load("model_full2_RI2_full.RData")
+m1 <- model_full2_RI2_full_1
+m2 <- model_full2_RI2_full_2
+m3 <- model_full2_RI2_full_3
+
+gelman.diag(list(m1$Sol[,1],m2$Sol[,1],m3$Sol[,1])) #The shrink factors should be below 1.05
+gelman.diag(list(m1$VCV[,c(1,2)],m2$VCV[,c(1,2)],m3$VCV[,c(1,2)]))
+gelman.diag(list(m1$Deviance,m2$Deviance,m3$Deviance))
+#check chain autocorrelation
+autocorr(m1$Sol[,c(4)])
+autocorr(m1$VCV[,c(1:2)])
+autocorr(m2$Sol[,c(4)])
+autocorr(m2$VCV[,c(1:2)])
+autocorr(m3$Sol[,c(4)])
+autocorr(m3$VCV[,c(1:2)])
+#extract and summarise DIC
+print(c(m1$DIC,m2$DIC,m3$DIC))
+mean(c(m1$DIC, m2$DIC, m3$DIC)) 
+range(c(m1$DIC, m2$DIC, m3$DIC))  
+
+chosen <- m3
+
+plot(chosen)
+summary(chosen)
+
+### heterogeneity and variances
+WI <- na.omit(1/data$RelIntake2_Hd_Var_adj) 
+s2I <- sum(WI*(length(WI)-1))/(sum(WI)^2-sum(WI^2)) # typical sampling (measurement) error variance (sigma2m)
+total_var <- chosen$VCV[,"Study_ID"]+chosen$VCV[,"Strain"]+chosen$VCV[,"units"]+s2I # total variance (sigma2t)
+total_het <- (total_var-s2I)/total_var # total heterogeneity I2
+#for pasting into Excel table
+Study_ID <- round(c(summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Study_ID"]/total_var)*100),1)
+Strain <- round(c(summary(chosen$VCV[,"Strain"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Strain"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Strain"]/total_var)*100),1)
+units <- round(c(summary(chosen$VCV[,"units"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"units"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"units"]/total_var)*100),1)
+total <- round(c(summary(total_het)$statistics[1]*100,summary(total_het)$statistics[2]*100,posterior.mode(total_het)*100),1)
+res_df <- t(data.frame(Study_ID=Study_ID,Strain=Strain,units=units,total=total))
+# version with mean and range for DIC
+res_df <- format(res_df, nsmall = 2)
+DICs <- c(m1$DIC, m2$DIC, m3$DIC)
+DICmean <- format(round(mean(DICs),2), nsmall = 2)
+DICrange <- paste0(format(round(range(DICs)[1],2), nsmall = 2)," - ",format(round(range(DICs)[2],2), nsmall = 2))
+res_df <- t(c(paste0(DICmean, "(", DICrange, ")"),
+            paste0(res_df[1,1],"(",res_df[1,2],")[",res_df[1,3],"]"),
+            paste0(res_df[2,1],"(",res_df[2,2],")[",res_df[2,3],"]"),
+            paste0(res_df[3,1],"(",res_df[3,2],")[",res_df[3,3],"]"),
+            paste0(res_df[4,1],"(",res_df[4,2],")[",res_df[4,3],"]")))
+colnames(res_df) <- c("DIC (DIC range)","I2study","I2strain","I2residual","I2total")
+rownames(res_df) <- "mean(SD)[mode]"
+write.csv(res_df,"results_table_model_full2_RI2_full.csv")
+
+### fixed effects (moderators)
+#posterior.mode(chosen$Sol)[1:8]  
+#summary(chosen$Sol[,1:8])$statistics[,1]   
+#HPDinterval(chosen$Sol[,1:8])
+mod <- posterior.mode(chosen$Sol)[1:8]
+av <- summary(chosen$Sol[,1:8])$statistics[,1]
+sd <- summary(chosen$Sol[,1:8])$statistics[,2]
+HPDlo <- HPDinterval(chosen$Sol[,1:8])[,1]
+HPDhi <- HPDinterval(chosen$Sol[,1:8])[,2]
+res_df <- data.frame(Mode=mod,Mean=av,SD=sd,Lower=HPDlo,Upper=HPDhi)
+res_df <- res_df[c(1,3,2,4:8),] #reorder moderators
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Offspr. female (interc.)","Offspr. male (interc.)","Offspr. both sex (interc.)","Choice-chow dam diet (diff.)","Dam diet during lactation (diff.)","Offspr. diet E","Offspr diet P:NP","Offspr. age" )
+write.table(t(c("Fixed effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_full2_RI2_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_full2_RI2_full.csv", sep=",", col.names = FALSE, append = TRUE)
+
+### random effects
+Mode <- posterior.mode(chosen$VCV)
+Mean <- summary(chosen$VCV)$statistics[,1]
+SD <- summary(chosen$VCV)$statistics[,2]
+Lower <- HPDinterval(chosen$VCV)[,1]
+Upper <- HPDinterval(chosen$VCV)[,2]
+res_df <- data.frame(Mode=Mode,Mean=Mean,SD=SD,Lower=Lower,Upper=Upper)
+res_df <- res_df[-3,]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Study_ID","Strain","residuals")
+write.table(t(c("Random effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_full2_RI2_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_full2_RI2_full.csv", sep=",", col.names = FALSE, append = TRUE)
+```
+
+Table.
+```{r full2 model RI2 full data table, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table <- read.table("results_table_model_full2_RI2_full.csv", sep=",")
+#table
+kable(table, digits = 3)
+```
+
+
+# RI2 - Null model for the chow data subset.
+
+Define chow data subset variables.
+```{r RI2 chow data, echo=FALSE, eval=TRUE, include=FALSE}
+d <- data_NC$RelIntake2_Hd
+vofd <- data_NC$RelIntake2_Hd_Var_adj
+m_NC <- Bodyweight_matrix_NC
+AinvG_NC <- solve(m_NC)
+AnivG_NC <- as(AinvG_NC,"dgCMatrix")
+```
+
+Run models.
+```{r null model RI2 chow data, echo=FALSE, eval=FALSE, include=FALSE}
+##test runs - with VCV matrix
+#prior3 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior3)
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+#prior4 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=1,alpha.mu=0,alpha.V=1000),G2=list(V=1,nu=1,alpha.mu=0,alpha.V=1000),G3=list(V=1,fix=1))) #parameter expanded prior with AnivG
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior4)
+#summary(m0.0)
+#plot(m0.0)
+
+##long runs
+prior3 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+model_null_RI2_chow_1 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_null_RI2_chow_2 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_null_RI2_chow_3 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+
+save(model_null_RI2_chow_1,model_null_RI2_chow_2,model_null_RI2_chow_3,file="model_null_RI2_chow.RData") 
+```
+
+Get results.
+```{r null model RI2 chow data results, echo=FALSE, eval=TRUE, include=FALSE}
+load("model_null_RI2_chow.RData")
+m1 <- model_null_RI2_chow_1
+m2 <- model_null_RI2_chow_2
+m3 <- model_null_RI2_chow_3
+
+#check model convergence
+gelman.diag(list(m1$Sol[,1],m2$Sol[,1],m3$Sol[,1])) #The shrink factors should be below 1.05
+gelman.diag(list(m1$VCV[,c(1,2)],m2$VCV[,c(1,2)],m3$VCV[,c(1,2)]))
+gelman.diag(list(m1$Deviance,m2$Deviance,m3$Deviance))
+#check chain autocorrelation
+autocorr(m1$Sol[,c(4)])
+autocorr(m1$VCV[,c(1:2)])
+autocorr(m2$Sol[,c(4)])
+autocorr(m2$VCV[,c(1:2)])
+autocorr(m3$Sol[,c(4)])
+autocorr(m3$VCV[,c(1:2)])
+#extract and summarise DIC
+print(c(m1$DIC,m2$DIC,m3$DIC))
+mean(c(m1$DIC, m2$DIC, m3$DIC)) 
+range(c(m1$DIC, m2$DIC, m3$DIC))  
+
+chosen <- m2
+
+plot(chosen)
+summary(chosen)
+
+### heterogeneity and variances
+WI <- na.omit(1/data_NC$RelIntake2_Hd_Var_adj) 
+s2I <- sum(WI*(length(WI)-1))/(sum(WI)^2-sum(WI^2)) # typical sampling (measurement) error variance (sigma2m)
+total_var <- chosen$VCV[,"Study_ID"]+chosen$VCV[,"Strain"]+chosen$VCV[,"units"]+s2I # total variance (sigma2t)
+total_het <- (total_var-s2I)/total_var # total heterogeneity I2
+#for pasting into Excel table
+Study_ID <- round(c(summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Study_ID"]/total_var)*100),1)
+Strain <- round(c(summary(chosen$VCV[,"Strain"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Strain"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Strain"]/total_var)*100),1)
+units <- round(c(summary(chosen$VCV[,"units"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"units"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"units"]/total_var)*100),1)
+total <- round(c(summary(total_het)$statistics[1]*100,summary(total_het)$statistics[2]*100,posterior.mode(total_het)*100),1)
+res_df <- t(data.frame(Study_ID=Study_ID,Strain=Strain,units=units,total=total))
+# version with mean and range for DIC
+res_df <- format(res_df, nsmall = 2)
+DICs <- c(m1$DIC, m2$DIC, m3$DIC)
+DICmean <- format(round(mean(DICs),2), nsmall = 2)
+DICrange <- paste0(format(round(range(DICs)[1],2), nsmall = 2)," - ",format(round(range(DICs)[2],2), nsmall = 2))
+res_df <- t(c(paste0(DICmean, "(", DICrange, ")"),
+            paste0(res_df[1,1],"(",res_df[1,2],")[",res_df[1,3],"]"),
+            paste0(res_df[2,1],"(",res_df[2,2],")[",res_df[2,3],"]"),
+            paste0(res_df[3,1],"(",res_df[3,2],")[",res_df[3,3],"]"),
+            paste0(res_df[4,1],"(",res_df[4,2],")[",res_df[4,3],"]")))
+colnames(res_df) <- c("DIC (DIC range)","I2study","I2strain","I2residual","I2total")
+rownames(res_df) <- "mean(SD)[mode]"
+write.csv(res_df,"results_table_model_null_RI2_chow.csv")
+
+### fixed effects (overall intercept)
+interc <- c(posterior.mode(chosen$Sol[,1]),summary(chosen$Sol[,1])$statistics[1],summary(chosen$Sol)$statistics[2],HPDinterval(chosen$Sol[,1])[1],HPDinterval(chosen$Sol[,1])[2])
+interc <- as.data.frame(t(interc))
+rownames(interc) <- c("intercept")
+write.table(t(c("Fixed effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_null_RI2_chow.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(round(interc,3),"results_table_model_null_RI2_chow.csv", sep=",", col.names = FALSE, append = TRUE)
+
+### random effects
+Mode <- posterior.mode(chosen$VCV)
+Mean <- summary(chosen$VCV)$statistics[,1]
+SD <- summary(chosen$VCV)$statistics[,2]
+Lower <- HPDinterval(chosen$VCV)[,1]
+Upper <- HPDinterval(chosen$VCV)[,2]
+res_df <- data.frame(Mode=Mode,Mean=Mean,SD=SD,Lower=Lower,Upper=Upper)
+res_df <- res_df[-(dim(res_df)[1]-1),]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Study_ID","Strain","residuals")
+write.table(t(c("Random effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_null_RI2_chow.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_null_RI2_chow.csv", sep=",", col.names = FALSE, append = TRUE)
+```
+
+Table.
+```{r null model RI2 chow data table, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table <- read.table("results_table_model_null_RI2_chow.csv", sep=",")
+#table
+kable(table, digits = 3)
+```
+
+# RI2 - Strain model for the chow data subset.
+
+Run models.
+```{r strain model RI2 chow data, echo=FALSE, eval=FALSE, include=FALSE}
+prior3s <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+
+##test runs - with VCV matrix
+#m0.0 <- MCMCglmm(d~Strain-1,random=~Study_ID+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior3s)
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+#prior4 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=1,alpha.mu=0,alpha.V=1000),G2=list(V=1,nu=1,alpha.mu=0,alpha.V=1000),G3=list(V=1,fix=1))) #parameter expanded prior with AnivG
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior4)
+#summary(m0.0)
+
+##long runs
+model_strain_RI2_chow_1 <- MCMCglmm(d~Strain-1,random=~Study_ID+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3s)
+model_strain_RI2_chow_2 <- MCMCglmm(d~Strain-1,random=~Study_ID+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3s)
+model_strain_RI2_chow_3 <- MCMCglmm(d~Strain-1,random=~Study_ID+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3s)
+save(model_strain_RI2_chow_1,model_strain_RI2_chow_2,model_strain_RI2_chow_3,file="model_strain_RI2_chow.RData") 
+```
+
+
+Get results.
+```{r strain model RI2 chow data results, echo=FALSE, eval=TRUE, include=FALSE}
+load("model_strain_RI2_chow.RData")
+m1 <- model_strain_RI2_chow_1
+m2 <- model_strain_RI2_chow_2
+m3 <- model_strain_RI2_chow_3
+
+#check model convergence
+gelman.diag(list(m1$Sol[,1],m2$Sol[,1],m3$Sol[,1])) #The shrink factors should be below 1.05
+gelman.diag(list(m1$VCV[,c(1,3)],m2$VCV[,c(1,3)],m3$VCV[,c(1,3)])) 
+gelman.diag(list(m1$Deviance,m2$Deviance,m3$Deviance))
+#check chain autocorrelation
+autocorr(m1$Sol[,c(2)])
+autocorr(m1$VCV[,c(1)])
+autocorr(m2$Sol[,c(2)])
+autocorr(m2$VCV[,c(1)])
+autocorr(m3$Sol[,c(2)])
+autocorr(m3$VCV[,c(1)])
+#extract and summarise DIC
+print(c(m1$DIC,m2$DIC,m3$DIC))
+mean(c(m1$DIC, m2$DIC, m3$DIC)) 
+range(c(m1$DIC, m2$DIC, m3$DIC))  
+
+chosen <- m2
+
+plot(chosen)
+summary(chosen)
+
+### heterogeneity and variances
+WI <- na.omit(1/data_NC$RelIntake2_Hd_Var_adj) 
+s2I <- sum(WI*(length(WI)-1))/(sum(WI)^2-sum(WI^2)) # typical sampling (measurement) error variance (sigma2m)
+total_var <- chosen$VCV[,"Study_ID"]+chosen$VCV[,"units"]+s2I # total variance (sigma2t)
+total_het <- (total_var-s2I)/total_var # total heterogeneity I2
+#for pasting into Excel table
+Study_ID <- round(c(summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Study_ID"]/total_var)*100),1)
+units <- round(c(summary(chosen$VCV[,"units"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"units"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"units"]/total_var)*100),1)
+total <- round(c(summary(total_het)$statistics[1]*100,summary(total_het)$statistics[2]*100,posterior.mode(total_het)*100),1)
+res_df <- t(data.frame(Study_ID=Study_ID,units=units,total=total))
+# version with mean and range for DIC
+res_df <- format(res_df, nsmall = 2)
+DICs <- c(m1$DIC, m2$DIC, m3$DIC)
+DICmean <- format(round(mean(DICs),2), nsmall = 2)
+DICrange <- paste0(format(round(range(DICs)[1],2), nsmall = 2)," - ",format(round(range(DICs)[2],2), nsmall = 2))
+res_df <- t(c(paste0(DICmean, "(", DICrange, ")"),
+            paste0(res_df[1,1],"(",res_df[1,2],")[",res_df[1,3],"]"),
+            paste0(res_df[2,1],"(",res_df[2,2],")[",res_df[2,3],"]"),
+            paste0(res_df[3,1],"(",res_df[3,2],")[",res_df[3,3],"]"), " "))
+colnames(res_df) <- c("DIC (DIC range)","I2study","I2residual","I2total", " ")
+rownames(res_df) <- "mean(SD)[mode]"
+write.csv(res_df,"results_table_model_strain_RI2_chow.csv")
+
+### fixed effects (8 strains)
+#posterior.mode(chosen$Sol)[1:8]  
+#summary(chosen$Sol[,1:8])$statistics[,1]   
+#HPDinterval(chosen$Sol[,1:8])
+mod <- posterior.mode(chosen$Sol)[1:8]
+av <- summary(chosen$Sol[,1:8])$statistics[,1]
+sd <- summary(chosen$Sol[,1:8])$statistics[,2]
+HPDlo <- HPDinterval(chosen$Sol[,1:8])[,1]
+HPDhi <- HPDinterval(chosen$Sol[,1:8])[,2]
+res_df <- data.frame(Mode=mod,Mean=av,SD=sd,Lower=HPDlo,Upper=HPDhi)
+res_df <- res_df[c(7,8,5,1,2,4,3,6),] #reorder strains
+res_df <- round(res_df,3)
+rownames(res_df) <- c("rat Sprague-Dawley","rat Wistar","rat Long-Evans","mouse C57BL/6","mouse C57BL/6J","mouse ICR","mouse FVB","mouse NMRI" )
+write.table(t(c("Fixed effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_strain_RI2_chow.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_strain_RI2_chow.csv", sep=",", col.names = FALSE, append = TRUE)
+
+# random effects
+#posterior.mode(chosen$VCV) #mode
+#summary(chosen$VCV) #mean, SD
+#HPDinterval(chosen$VCV) #HPD interval
+Mode <- posterior.mode(chosen$VCV)
+Mean <- summary(chosen$VCV)$statistics[,1]
+SD <- summary(chosen$VCV)$statistics[,2]
+Lower <- HPDinterval(chosen$VCV)[,1]
+Upper <- HPDinterval(chosen$VCV)[,2]
+res_df <- data.frame(Mode=Mode,Mean=Mean,SD=SD,Lower=Lower,Upper=Upper)
+res_df <- res_df[-(dim(res_df)[1]-1),]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Study_ID","residuals")
+write.table(t(c("Random effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_strain_RI2_chow.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_strain_RI2_chow.csv", sep=",", col.names = FALSE, append = TRUE)
+```
+
+Table.
+```{r strain model RI2 chow data table, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table <- read.table("results_table_model_strain_RI2_chow.csv", sep=",")
+#table
+kable(table, digits = 3)
+```
+
+
+# RI2 - full1 model for the chow data subset (with diet stat and end dates)
+
+Run models.
+```{r full1 model RI2 chow data, echo=FALSE, eval=FALSE, include=FALSE}
+prior3 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+
+#test run
+#m0.0 <- MCMCglmm(d~factor(Offspr_sex)+Z_Dam_diet_start+Z_Dam_diet_end+Z_Dam_diet_exp_E+Z_Dam_diet_exp_PNP_kcal+Z_Intake_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior3)
+#summary(m0.0)
+
+#long runs
+model_full1_RI2_chow_1 <- MCMCglmm(d~factor(Offspr_sex)+Z_Dam_diet_start+Z_Dam_diet_end+Z_Dam_diet_exp_E+Z_Dam_diet_exp_PNP_kcal+Z_Intake_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_full1_RI2_chow_2 <- MCMCglmm(d~factor(Offspr_sex)+Z_Dam_diet_start+Z_Dam_diet_end+Z_Dam_diet_exp_E+Z_Dam_diet_exp_PNP_kcal+Z_Intake_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_full1_RI2_chow_3 <- MCMCglmm(d~factor(Offspr_sex)+Z_Dam_diet_start+Z_Dam_diet_end+Z_Dam_diet_exp_E+Z_Dam_diet_exp_PNP_kcal+Z_Intake_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+save(model_full1_RI2_chow_1,model_full1_RI2_chow_2,model_full1_RI2_chow_3,file="model_full1_RI2_chow.RData") 
+```
+
+
+Get results.
+```{r full1 model RI2 chow data results, echo=FALSE, eval=TRUE, include=FALSE}
+load("model_full1_RI2_chow.RData")
+m1 <- model_full1_RI2_chow_1
+m2 <- model_full1_RI2_chow_2
+m3 <- model_full1_RI2_chow_3
+
+gelman.diag(list(m1$Sol[,1],m2$Sol[,1],m3$Sol[,1])) #The shrink factors should be below 1.05
+gelman.diag(list(m1$VCV[,c(1,2)],m2$VCV[,c(1,2)],m3$VCV[,c(1,2)]))
+gelman.diag(list(m1$Deviance,m2$Deviance,m3$Deviance))
+#check chain autocorrelation
+autocorr(m1$Sol[,c(4)])
+autocorr(m1$VCV[,c(1:2)])
+autocorr(m2$Sol[,c(4)])
+autocorr(m2$VCV[,c(1:2)])
+autocorr(m3$Sol[,c(4)])
+autocorr(m3$VCV[,c(1:2)])
+#extract and summarise DIC
+print(c(m1$DIC,m2$DIC,m3$DIC))
+mean(c(m1$DIC, m2$DIC, m3$DIC)) 
+range(c(m1$DIC, m2$DIC, m3$DIC))  
+
+chosen <- m2
+
+plot(chosen)
+summary(chosen)
+
+### heterogeneity and variances
+WI <- na.omit(1/data_NC$RelIntake2_Hd_Var_adj) 
+s2I <- sum(WI*(length(WI)-1))/(sum(WI)^2-sum(WI^2)) # typical sampling (measurement) error variance (sigma2m)
+total_var <- chosen$VCV[,"Study_ID"]+chosen$VCV[,"Strain"]+chosen$VCV[,"units"]+s2I # total variance (sigma2t)
+total_het <- (total_var-s2I)/total_var # total heterogeneity I2
+#for pasting into Excel table
+Study_ID <- round(c(summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Study_ID"]/total_var)*100),1)
+Strain <- round(c(summary(chosen$VCV[,"Strain"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Strain"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Strain"]/total_var)*100),1)
+units <- round(c(summary(chosen$VCV[,"units"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"units"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"units"]/total_var)*100),1)
+total <- round(c(summary(total_het)$statistics[1]*100,summary(total_het)$statistics[2]*100,posterior.mode(total_het)*100),1)
+res_df <- t(data.frame(Study_ID=Study_ID,Strain=Strain,units=units,total=total))
+# version with mean and range for DIC
+res_df <- format(res_df, nsmall = 2)
+DICs <- c(m1$DIC, m2$DIC, m3$DIC)
+DICmean <- format(round(mean(DICs),2), nsmall = 2)
+DICrange <- paste0(format(round(range(DICs)[1],2), nsmall = 2)," - ",format(round(range(DICs)[2],2), nsmall = 2))
+res_df <- t(c(paste0(DICmean, "(", DICrange, ")"),
+            paste0(res_df[1,1],"(",res_df[1,2],")[",res_df[1,3],"]"),
+            paste0(res_df[2,1],"(",res_df[2,2],")[",res_df[2,3],"]"),
+            paste0(res_df[3,1],"(",res_df[3,2],")[",res_df[3,3],"]"),
+            paste0(res_df[4,1],"(",res_df[4,2],")[",res_df[4,3],"]")))
+colnames(res_df) <- c("DIC (DIC range)","I2study","I2strain","I2residual","I2total")
+rownames(res_df) <- "mean(SD)[mode]"
+write.csv(res_df,"results_table_model_full1_RI2_chow.csv")
+
+### fixed effects (moderators)
+#posterior.mode(chosen$Sol)[1:7]  
+#summary(chosen$Sol[,1:7])$statistics[,1]   
+#HPDinterval(chosen$Sol[,1:7])
+mod <- posterior.mode(chosen$Sol)[1:7]
+av <- summary(chosen$Sol[,1:7])$statistics[,1]
+sd <- summary(chosen$Sol[,1:7])$statistics[,2]
+HPDlo <- HPDinterval(chosen$Sol[,1:7])[,1]
+HPDhi <- HPDinterval(chosen$Sol[,1:7])[,2]
+res_df <- data.frame(Mode=mod,Mean=av,SD=sd,Lower=HPDlo,Upper=HPDhi)
+#res_df <- res_df[-(dim(res_df)[1]-1),]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Offspr. female (interc.)","Offspr. male (interc.)","Dam diet start time","Dam diet end time","Dam diet E","Dam diet P:NP","Offspr. age" )
+write.table(t(c("Fixed effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_full1_RI2_chow.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_full1_RI2_chow.csv", sep=",", col.names = FALSE, append = TRUE)
+
+### random effects
+Mode <- posterior.mode(chosen$VCV)
+Mean <- summary(chosen$VCV)$statistics[,1]
+SD <- summary(chosen$VCV)$statistics[,2]
+Lower <- HPDinterval(chosen$VCV)[,1]
+Upper <- HPDinterval(chosen$VCV)[,2]
+res_df <- data.frame(Mode=Mode,Mean=Mean,SD=SD,Lower=Lower,Upper=Upper)
+res_df <- res_df[-3,]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Study_ID","Strain","residuals")
+write.table(t(c("Random effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_full1_RI2_chow.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_full1_RI2_chow.csv", sep=",", col.names = FALSE, append = TRUE)
+```
+
+Table.
+```{r full1 model RI2 chow data table, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table <- read.table("results_table_model_full1_RI2_full.csv", sep=",")
+#table
+kable(table, digits = 3)
+```
+
+
+# RI2 - full2 model for the chow data subset (timing of the diet as categorical variable: lactation included or not)
+
+Run models.
+```{r full2 model RI2 chow data, echo=FALSE, eval=FALSE, include=FALSE}
+prior3 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+
+#test run
+#m0.0 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_diet_lactation_incl)+Z_Dam_diet_exp_E+Z_Dam_diet_exp_PNP_kcal+Z_Intake_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior3)
+#summary(m0.0)
+
+#long runs
+model_full2_RI2_chow_1 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_diet_lactation_incl)+Z_Dam_diet_exp_E+Z_Dam_diet_exp_PNP_kcal+Z_Intake_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_full2_RI2_chow_2 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_diet_lactation_incl)+Z_Dam_diet_exp_E+Z_Dam_diet_exp_PNP_kcal+Z_Intake_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_full2_RI2_chow_3 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_diet_lactation_incl)+Z_Dam_diet_exp_E+Z_Dam_diet_exp_PNP_kcal+Z_Intake_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+save(model_full2_RI2_chow_1,model_full2_RI2_chow_2,model_full2_RI2_chow_3,file="model_full2_RI2_chow.RData") 
+```
+
+
+Get results.
+```{r full2 model RI2 chow data results, echo=FALSE, eval=TRUE, include=FALSE}
+load("model_full2_RI2_chow.RData")
+m1 <- model_full2_RI2_chow_1
+m2 <- model_full2_RI2_chow_2
+m3 <- model_full2_RI2_chow_3
+
+gelman.diag(list(m1$Sol[,1],m2$Sol[,1],m3$Sol[,1])) #The shrink factors should be below 1.05
+gelman.diag(list(m1$VCV[,c(1,2)],m2$VCV[,c(1,2)],m3$VCV[,c(1,2)]))
+gelman.diag(list(m1$Deviance,m2$Deviance,m3$Deviance))
+#check chain autocorrelation
+autocorr(m1$Sol[,c(4)])
+autocorr(m1$VCV[,c(1:2)])
+autocorr(m2$Sol[,c(4)])
+autocorr(m2$VCV[,c(1:2)])
+autocorr(m3$Sol[,c(4)])
+autocorr(m3$VCV[,c(1:2)])
+#extract and summarise DIC
+print(c(m1$DIC,m2$DIC,m3$DIC))
+mean(c(m1$DIC, m2$DIC, m3$DIC)) 
+range(c(m1$DIC, m2$DIC, m3$DIC))  
+
+chosen <- m3
+
+plot(chosen)
+summary(chosen)
+
+### heterogeneity and variances
+WI <- na.omit(1/data_NC$RelIntake2_Hd_Var_adj) 
+s2I <- sum(WI*(length(WI)-1))/(sum(WI)^2-sum(WI^2)) # typical sampling (measurement) error variance (sigma2m)
+total_var <- chosen$VCV[,"Study_ID"]+chosen$VCV[,"Strain"]+chosen$VCV[,"units"]+s2I # total variance (sigma2t)
+total_het <- (total_var-s2I)/total_var # total heterogeneity I2
+#for pasting into Excel table
+Study_ID <- round(c(summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Study_ID"]/total_var)*100),1)
+Strain <- round(c(summary(chosen$VCV[,"Strain"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Strain"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Strain"]/total_var)*100),1)
+units <- round(c(summary(chosen$VCV[,"units"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"units"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"units"]/total_var)*100),1)
+total <- round(c(summary(total_het)$statistics[1]*100,summary(total_het)$statistics[2]*100,posterior.mode(total_het)*100),1)
+res_df <- t(data.frame(Study_ID=Study_ID,Strain=Strain,units=units,total=total))
+# version with mean and range for DIC
+res_df <- format(res_df, nsmall = 2)
+DICs <- c(m1$DIC, m2$DIC, m3$DIC)
+DICmean <- format(round(mean(DICs),2), nsmall = 2)
+DICrange <- paste0(format(round(range(DICs)[1],2), nsmall = 2)," - ",format(round(range(DICs)[2],2), nsmall = 2))
+res_df <- t(c(paste0(DICmean, "(", DICrange, ")"),
+            paste0(res_df[1,1],"(",res_df[1,2],")[",res_df[1,3],"]"),
+            paste0(res_df[2,1],"(",res_df[2,2],")[",res_df[2,3],"]"),
+            paste0(res_df[3,1],"(",res_df[3,2],")[",res_df[3,3],"]"),
+            paste0(res_df[4,1],"(",res_df[4,2],")[",res_df[4,3],"]")))
+colnames(res_df) <- c("DIC (DIC range)","I2study","I2strain","I2residual","I2total")
+rownames(res_df) <- "mean(SD)[mode]"
+write.csv(res_df,"results_table_model_full2_RI2_chow.csv")
+
+### fixed effects (moderators)
+#posterior.mode(chosen$Sol)[1:6]  
+#summary(chosen$Sol[,1:6])$statistics[,1]   
+#HPDinterval(chosen$Sol[,1:6])
+mod <- posterior.mode(chosen$Sol)[1:6]
+av <- summary(chosen$Sol[,1:6])$statistics[,1]
+sd <- summary(chosen$Sol[,1:6])$statistics[,2]
+HPDlo <- HPDinterval(chosen$Sol[,1:6])[,1]
+HPDhi <- HPDinterval(chosen$Sol[,1:6])[,2]
+res_df <- data.frame(Mode=mod,Mean=av,SD=sd,Lower=HPDlo,Upper=HPDhi)
+#res_df <- res_df[c(1,3,2,4:6),] #reorder moderators
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Offspr. female (interc.)","Offspr. male (interc.)","Dam diet during lactation (diff.)","Dam diet E","Dam diet P:NP","Offspr. age" )
+write.table(t(c("Fixed effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_full2_RI2_chow.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_full2_RI2_chow.csv", sep=",", col.names = FALSE, append = TRUE)
+
+### random effects
+Mode <- posterior.mode(chosen$VCV)
+Mean <- summary(chosen$VCV)$statistics[,1]
+SD <- summary(chosen$VCV)$statistics[,2]
+Lower <- HPDinterval(chosen$VCV)[,1]
+Upper <- HPDinterval(chosen$VCV)[,2]
+res_df <- data.frame(Mode=Mode,Mean=Mean,SD=SD,Lower=Lower,Upper=Upper)
+res_df <- res_df[-3,]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Study_ID","Strain","residuals")
+write.table(t(c("Random effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_full2_RI2_chow.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_full2_RI2_chow.csv", sep=",", col.names = FALSE, append = TRUE)
+```
+
+Table.
+```{r full2 model RI2 chow data table, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table <- read.table("results_table_model_full2_RI2_chow.csv", sep=",")
+#table
+kable(table, digits = 3)
+```
+
+
+
+Offspring body weight - Bodyweight (BW)
+-----------------------------------------------------
+
+Define full dataset variables.
+```{r BW full data, echo=FALSE, eval=TRUE, include=FALSE}
+d <- data$Bodyweight_Hd
+vofd <- data$Bodyweight_Hd_Var_adj
+m <- Bodyweight_matrix
+AinvG <- solve(m)
+AnivG <- as(AinvG,"dgCMatrix")
+```
+
+
+# BW - Null model for the full data set.
+
+Run models.
+```{r null model BW full data, echo=FALSE, eval=FALSE, include=FALSE}
+##test runs - without VCV matrix
+#m0.0<-MCMCglmm(d~1,random=~Study_ID+Strain,family="gaussian",data=data,verbose=T,mev=vofd,nitt=200000,thin=25,burnin=25000,pr=T) #use stronger prior!
+#prior1 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002))) #inverse-Gamma piror (slightly informative) - the default is non-informative prior
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain,family="gaussian",data=data,verbose=T,mev=vofd,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior1)
+#prior2 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=1,alpha.mu=0,alpha.V=1000),G2=list(V=1,nu=1,alpha.mu=0,alpha.V=1000))) # parameter expanded prior (close to non-informative)
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain,family="gaussian",data=data,verbose=T,mev=vofd,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior2)
+##test runs - with VCV matrix
+#prior3 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior3)
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+#prior4 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=1,alpha.mu=0,alpha.V=1000),G2=list(V=1,nu=1,alpha.mu=0,alpha.V=1000),G3=list(V=1,fix=1))) #parameter expanded prior with AnivG
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior4)
+#summary(m0.0)
+#plot(m0.0)
+
+
+##long runs
+prior3 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+model_null_BW_full_1 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_null_BW_full_2 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_null_BW_full_3 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+save(model_null_BW_full_1,model_null_BW_full_2,model_null_BW_full_3,file="model_null_BW_full.RData") 
+```
+
+
+Get results.
+```{r null model BW full data results, echo=FALSE, eval=TRUE, include=FALSE}
+load("model_null_BW_full.RData")
+m1 <- model_null_BW_full_1
+m2 <- model_null_BW_full_2
+m3 <- model_null_BW_full_3
+
+#check model convergence
+gelman.diag(list(m1$Sol[,1],m2$Sol[,1],m3$Sol[,1])) #The shrink factors should be below 1.05
+gelman.diag(list(m1$VCV[,c(1,2)],m2$VCV[,c(1,2)],m3$VCV[,c(1,2)]))
+gelman.diag(list(m1$Deviance,m2$Deviance,m3$Deviance))
+#check chain autocorrelation
+autocorr(m1$Sol[,c(4)])
+autocorr(m1$VCV[,c(1:2)])
+autocorr(m2$Sol[,c(4)])
+autocorr(m2$VCV[,c(1:2)])
+autocorr(m3$Sol[,c(4)])
+autocorr(m3$VCV[,c(1:2)])
+#extract and summarise DIC
+print(c(m1$DIC,m2$DIC,m3$DIC))
+mean(c(m1$DIC, m2$DIC, m3$DIC)) 
+range(c(m1$DIC, m2$DIC, m3$DIC))  
+
+chosen <- m2
+
+plot(chosen)
+summary(chosen)
+
+### heterogeneity and variances
+WI <- na.omit(1/data$Bodyweight_Hd_Var_adj) 
+s2I <- sum(WI*(length(WI)-1))/(sum(WI)^2-sum(WI^2)) # typical sampling (measurement) error variance (sigma2m)
+total_var <- chosen$VCV[,"Study_ID"]+chosen$VCV[,"Strain"]+chosen$VCV[,"units"]+s2I # total variance (sigma2t)
+total_het <- (total_var-s2I)/total_var # total heterogeneity I2
+#for pasting into Excel table
+Study_ID <- round(c(summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Study_ID"]/total_var)*100),1)
+Strain <- round(c(summary(chosen$VCV[,"Strain"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Strain"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Strain"]/total_var)*100),1)
+units <- round(c(summary(chosen$VCV[,"units"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"units"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"units"]/total_var)*100),1)
+total <- round(c(summary(total_het)$statistics[1]*100,summary(total_het)$statistics[2]*100,posterior.mode(total_het)*100),1)
+res_df <- t(data.frame(Study_ID=Study_ID,Strain=Strain,units=units,total=total))
+# version with mean and range for DIC
+res_df<-format(res_df, nsmall = 2)
+DICs <- c(m1$DIC, m2$DIC, m3$DIC)
+DICmean <- format(round(mean(DICs),2), nsmall = 2)
+DICrange <- paste0(format(round(range(DICs)[1],2), nsmall = 2)," - ",format(round(range(DICs)[2],2), nsmall = 2))
+res_df <- t(c(paste0(DICmean, "(", DICrange, ")"),
+            paste0(res_df[1,1],"(",res_df[1,2],")[",res_df[1,3],"]"),
+            paste0(res_df[2,1],"(",res_df[2,2],")[",res_df[2,3],"]"),
+            paste0(res_df[3,1],"(",res_df[3,2],")[",res_df[3,3],"]"),
+            paste0(res_df[4,1],"(",res_df[4,2],")[",res_df[4,3],"]")))
+colnames(res_df) <- c("DIC (DIC range)","I2study","I2strain","I2residual","I2total")
+rownames(res_df) <- "mean(SD)[mode]"
+write.csv(res_df,"results_table_model_null_BW_full.csv")
+
+### fixed effects (overall intercept)
+interc <- c(posterior.mode(chosen$Sol[,1]),summary(chosen$Sol[,1])$statistics[1],summary(chosen$Sol)$statistics[2],HPDinterval(chosen$Sol[,1])[1],HPDinterval(chosen$Sol[,1])[2])
+interc <- as.data.frame(t(interc))
+rownames(interc) <- c("intercept")
+write.table(t(c("Fixed effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_null_BW_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(round(interc,3),"results_table_model_null_BW_full.csv", sep=",", col.names = FALSE, append = TRUE)
+
+### random effects
+Mode <- posterior.mode(chosen$VCV)
+Mean <- summary(chosen$VCV)$statistics[,1]
+SD <- summary(chosen$VCV)$statistics[,2]
+Lower <- HPDinterval(chosen$VCV)[,1]
+Upper <- HPDinterval(chosen$VCV)[,2]
+res_df <- data.frame(Mode=Mode,Mean=Mean,SD=SD,Lower=Lower,Upper=Upper)
+res_df <- res_df[-(dim(res_df)[1]-1),]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Study_ID","Strain","residuals")
+write.table(t(c("Random effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_null_BW_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_null_BW_full.csv", sep=",", col.names = FALSE, append = TRUE)
+```
+
+Table.
+```{r null model BW full data table, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table <- read.table("results_table_model_null_BW_full.csv", sep=",")
+#table
+kable(table, digits = 3)
+```
+
+
+# BW - Strain model for the full data set.
+
+Run models.
+```{r strain model BW full data, echo=FALSE, eval=FALSE, include=FALSE}
+prior3s <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+#test run
+#m0.0<-MCMCglmm(d~Strain-1,random=~Study_ID+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior3s)
+#summary(m0.0)
+#long runs
+model_strain_BW_full_1 <- MCMCglmm(d~Strain-1,random=~Study_ID+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3s)
+model_strain_BW_full_2 <- MCMCglmm(d~Strain-1,random=~Study_ID+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3s)
+model_strain_BW_full_3 <- MCMCglmm(d~Strain-1,random=~Study_ID+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3s)
+save(model_strain_BW_full_1,model_strain_BW_full_2,model_strain_BW_full_3,file="model_strain_BW_full.RData") 
+```
+
+Get results.
+```{r strain model BW full data results, echo=FALSE, eval=TRUE, include=FALSE}
+load("model_strain_BW_full.RData")
+m1 <- model_strain_BW_full_1
+m2 <- model_strain_BW_full_2
+m3 <- model_strain_BW_full_3
+
+#check model convergence
+gelman.diag(list(m1$Sol[,1],m2$Sol[,1],m3$Sol[,1])) #The shrink factors should be below 1.05
+gelman.diag(list(m1$VCV[,c(1,3)],m2$VCV[,c(1,3)],m3$VCV[,c(1,3)])) 
+gelman.diag(list(m1$Deviance,m2$Deviance,m3$Deviance))
+#check chain autocorrelation
+autocorr(m1$Sol[,c(2)])
+autocorr(m1$VCV[,c(1)])
+autocorr(m2$Sol[,c(2)])
+autocorr(m2$VCV[,c(1)])
+autocorr(m3$Sol[,c(2)])
+autocorr(m3$VCV[,c(1)])
+#extract and summarise DIC
+print(c(m1$DIC,m2$DIC,m3$DIC))
+mean(c(m1$DIC, m2$DIC, m3$DIC)) 
+range(c(m1$DIC, m2$DIC, m3$DIC))  
+
+chosen <- m3
+
+plot(chosen)
+summary(chosen)
+
+### heterogeneity and variances
+WI <- na.omit(1/data$Bodyweight_Hd_Var_adj) 
+s2I <- sum(WI*(length(WI)-1))/(sum(WI)^2-sum(WI^2)) # typical sampling (measurement) error variance (sigma2m)
+total_var <- chosen$VCV[,"Study_ID"]+chosen$VCV[,"units"]+s2I # total variance (sigma2t)
+total_het <- (total_var-s2I)/total_var # total heterogeneity I2
+#for pasting into Excel table
+Study_ID <- round(c(summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Study_ID"]/total_var)*100),1)
+units <- round(c(summary(chosen$VCV[,"units"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"units"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"units"]/total_var)*100),1)
+total <- round(c(summary(total_het)$statistics[1]*100,summary(total_het)$statistics[2]*100,posterior.mode(total_het)*100),1)
+res_df <- t(data.frame(Study_ID=Study_ID,units=units,total=total))
+# version with mean and range for DIC
+res_df <- format(res_df, nsmall = 2)
+DICs <- c(m1$DIC, m2$DIC, m3$DIC)
+DICmean <- format(round(mean(DICs),2), nsmall = 2)
+DICrange <- paste0(format(round(range(DICs)[1],2), nsmall = 2)," - ",format(round(range(DICs)[2],2), nsmall = 2))
+res_df <- t(c(paste0(DICmean, "(", DICrange, ")"),
+            paste0(res_df[1,1],"(",res_df[1,2],")[",res_df[1,3],"]"),
+            paste0(res_df[2,1],"(",res_df[2,2],")[",res_df[2,3],"]"),
+            paste0(res_df[3,1],"(",res_df[3,2],")[",res_df[3,3],"]"), " "))
+colnames(res_df) <- c("DIC (DIC range)","I2study","I2residual","I2total", " ")
+rownames(res_df) <- "mean(SD)[mode]"
+write.csv(res_df,"results_table_model_strain_BW_full.csv")
+
+### fixed effects (8 strains)
+#posterior.mode(chosen$Sol)[1:8]  
+#summary(chosen$Sol[,1:8])$statistics[,1]   
+#HPDinterval(chosen$Sol[,1:8])
+mod <- posterior.mode(chosen$Sol)[1:8]
+av <- summary(chosen$Sol[,1:8])$statistics[,1]
+sd <- summary(chosen$Sol[,1:8])$statistics[,2]
+HPDlo <- HPDinterval(chosen$Sol[,1:8])[,1]
+HPDhi <- HPDinterval(chosen$Sol[,1:8])[,2]
+res_df <- data.frame(Mode=mod,Mean=av,SD=sd,Lower=HPDlo,Upper=HPDhi)
+res_df <- res_df[c(7,8,5,1,2,4,3,6),] #reorder strains
+res_df <- round(res_df,3)
+rownames(res_df) <- c("rat Sprague-Dawley","rat Wistar","rat Long-Evans","mouse C57BL/6","mouse C57BL/6J","mouse ICR","mouse FVB","mouse NMRI" )
+write.table(t(c("Fixed effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_strain_BW_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_strain_BW_full.csv", sep=",", col.names = FALSE, append = TRUE)
+
+# random effects
+#posterior.mode(chosen$VCV) #mode
+#summary(chosen$VCV) #mean, SD
+#HPDinterval(chosen$VCV) #HPD interval
+Mode <- posterior.mode(chosen$VCV)
+Mean <- summary(chosen$VCV)$statistics[,1]
+SD <- summary(chosen$VCV)$statistics[,2]
+Lower <- HPDinterval(chosen$VCV)[,1]
+Upper <- HPDinterval(chosen$VCV)[,2]
+res_df <- data.frame(Mode=Mode,Mean=Mean,SD=SD,Lower=Lower,Upper=Upper)
+res_df <- res_df[-(dim(res_df)[1]-1),]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Study_ID","residuals")
+write.table(t(c("Random effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_strain_BW_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_strain_BW_full.csv", sep=",", col.names = FALSE, append = TRUE)
+```
+
+Table.
+```{r strain model BW full data table, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table <- read.table("results_table_model_strain_BW_full.csv", sep=",")
+#table
+kable(table, digits = 3)
+```
+
+# BW - full1 model for the full data set (with diet stat and end dates)
+
+Run models.
+```{r full1 model BW full data, echo=FALSE, eval=FALSE, include=FALSE}
+prior3 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+
+#test run
+#m0.0 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_choice_diet)+Z_Dam_diet_start+Z_Dam_diet_end+Z_Offspr_diet_E+Z_Offspr_diet_PNP_kcal+Z_TBodyweight_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior3)
+#summary(m0.0)
+
+#long runs
+model_full1_BW_full_1 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_choice_diet)+Z_Dam_diet_start+Z_Dam_diet_end+Z_Offspr_diet_E+Z_Offspr_diet_PNP_kcal+Z_TBodyweight_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_full1_BW_full_2 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_choice_diet)+Z_Dam_diet_start+Z_Dam_diet_end+Z_Offspr_diet_E+Z_Offspr_diet_PNP_kcal+Z_TBodyweight_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_full1_BW_full_3 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_choice_diet)+Z_Dam_diet_start+Z_Dam_diet_end+Z_Offspr_diet_E+Z_Offspr_diet_PNP_kcal+Z_TBodyweight_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+save(model_full1_BW_full_1,model_full1_BW_full_2,model_full1_BW_full_3,file="model_full1_BW_full.RData") 
+```
+
+Get results.
+```{r full1 model BW full data results, echo=FALSE, eval=TRUE, include=FALSE}
+load("model_full1_BW_full.RData")
+m1 <- model_full1_BW_full_1
+m2 <- model_full1_BW_full_2
+m3 <- model_full1_BW_full_3
+
+gelman.diag(list(m1$Sol[,1],m2$Sol[,1],m3$Sol[,1])) #The shrink factors should be below 1.05
+gelman.diag(list(m1$VCV[,c(1,2)],m2$VCV[,c(1,2)],m3$VCV[,c(1,2)]))
+gelman.diag(list(m1$Deviance,m2$Deviance,m3$Deviance))
+#check chain autocorrelation
+autocorr(m1$Sol[,c(4)])
+autocorr(m1$VCV[,c(1:2)])
+autocorr(m2$Sol[,c(4)])
+autocorr(m2$VCV[,c(1:2)])
+autocorr(m3$Sol[,c(4)])
+autocorr(m3$VCV[,c(1:2)])
+#extract and summarise DIC
+print(c(m1$DIC,m2$DIC,m3$DIC))
+mean(c(m1$DIC, m2$DIC, m3$DIC)) 
+range(c(m1$DIC, m2$DIC, m3$DIC))  
+
+chosen <- m1
+
+plot(chosen)
+summary(chosen)
+
+### heterogeneity and variances
+WI <- na.omit(1/data$Bodyweight_Hd_Var_adj) 
+s2I <- sum(WI*(length(WI)-1))/(sum(WI)^2-sum(WI^2)) # typical sampling (measurement) error variance (sigma2m)
+total_var <- chosen$VCV[,"Study_ID"]+chosen$VCV[,"Strain"]+chosen$VCV[,"units"]+s2I # total variance (sigma2t)
+total_het <- (total_var-s2I)/total_var # total heterogeneity I2
+#for pasting into Excel table
+Study_ID <- round(c(summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Study_ID"]/total_var)*100),1)
+Strain <- round(c(summary(chosen$VCV[,"Strain"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Strain"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Strain"]/total_var)*100),1)
+units <- round(c(summary(chosen$VCV[,"units"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"units"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"units"]/total_var)*100),1)
+total <- round(c(summary(total_het)$statistics[1]*100,summary(total_het)$statistics[2]*100,posterior.mode(total_het)*100),1)
+res_df <- t(data.frame(Study_ID=Study_ID,Strain=Strain,units=units,total=total))
+# version with mean and range for DIC
+res_df <- format(res_df, nsmall = 2)
+DICs <- c(m1$DIC, m2$DIC, m3$DIC)
+DICmean <- format(round(mean(DICs),2), nsmall = 2)
+DICrange <- paste0(format(round(range(DICs)[1],2), nsmall = 2)," - ",format(round(range(DICs)[2],2), nsmall = 2))
+res_df <- t(c(paste0(DICmean, "(", DICrange, ")"),
+            paste0(res_df[1,1],"(",res_df[1,2],")[",res_df[1,3],"]"),
+            paste0(res_df[2,1],"(",res_df[2,2],")[",res_df[2,3],"]"),
+            paste0(res_df[3,1],"(",res_df[3,2],")[",res_df[3,3],"]"),
+            paste0(res_df[4,1],"(",res_df[4,2],")[",res_df[4,3],"]")))
+colnames(res_df) <- c("DIC (DIC range)","I2study","I2strain","I2residual","I2total")
+rownames(res_df) <- "mean(SD)[mode]"
+write.csv(res_df,"results_table_model_full1_BW_full.csv")
+
+### fixed effects (moderators)
+#posterior.mode(chosen$Sol)[1:9]  
+#summary(chosen$Sol[,1:9])$statistics[,1]   
+#HPDinterval(chosen$Sol[,1:9])
+mod <- posterior.mode(chosen$Sol)[1:9]
+av <- summary(chosen$Sol[,1:9])$statistics[,1]
+sd <- summary(chosen$Sol[,1:9])$statistics[,2]
+HPDlo <- HPDinterval(chosen$Sol[,1:9])[,1]
+HPDhi <- HPDinterval(chosen$Sol[,1:9])[,2]
+res_df <- data.frame(Mode=mod,Mean=av,SD=sd,Lower=HPDlo,Upper=HPDhi)
+res_df <- res_df[c(1,3,2,4,5,6,7,8,9),] #reorder moderators
+#res_df <- res_df[-(dim(res_df)[1]-1),]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Offspr. female (interc.)","Offspr. male (interc.)","Offspr. both sex (interc.)","Choice-chow dam diet (diff.)","Dam diet start time","Dam diet end time","Offspr. diet E","Offspr diet P:NP","Offspr. age" )
+write.table(t(c("Fixed effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_full1_BW_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_full1_BW_full.csv", sep=",", col.names = FALSE, append = TRUE)
+
+### random effects
+Mode <- posterior.mode(chosen$VCV)
+Mean <- summary(chosen$VCV)$statistics[,1]
+SD <- summary(chosen$VCV)$statistics[,2]
+Lower <- HPDinterval(chosen$VCV)[,1]
+Upper <- HPDinterval(chosen$VCV)[,2]
+res_df <- data.frame(Mode=Mode,Mean=Mean,SD=SD,Lower=Lower,Upper=Upper)
+res_df <- res_df[-3,]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Study_ID","Strain","residuals")
+write.table(t(c("Random effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_full1_BW_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_full1_BW_full.csv", sep=",", col.names = FALSE, append = TRUE)
+```
+
+Table.
+```{r full1 model BW full data table, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table <- read.table("results_table_model_full1_BW_full.csv", sep=",")
+#table
+kable(table, digits = 3)
+```
+
+# BW - full2 model for the full data set (timing of the diet as categorical variable: lactation included or not)
+
+Run models.
+```{r full2 model BW full data, echo=FALSE, eval=FALSE, include=FALSE}
+prior3 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+
+#test run
+#m0.0 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_choice_diet)+factor(Dam_diet_lactation_incl)+Z_Offspr_diet_E+Z_Offspr_diet_PNP_kcal+Z_TBodyweight_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior3)
+#summary(m0.0)
+
+#long runs
+model_full2_BW_full_1 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_choice_diet)+factor(Dam_diet_lactation_incl)+Z_Offspr_diet_E+Z_Offspr_diet_PNP_kcal+Z_TBodyweight_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_full2_BW_full_2 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_choice_diet)+factor(Dam_diet_lactation_incl)+Z_Offspr_diet_E+Z_Offspr_diet_PNP_kcal+Z_TBodyweight_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_full2_BW_full_3 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_choice_diet)+factor(Dam_diet_lactation_incl)+Z_Offspr_diet_E+Z_Offspr_diet_PNP_kcal+Z_TBodyweight_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+
+save(model_full2_BW_full_1,model_full2_BW_full_2,model_full2_BW_full_3,file="model_full2_BW_full.RData") 
+```
+
+Get results.
+```{r full2 model BW full data results, echo=FALSE, eval=TRUE, include=FALSE}
+load("model_full2_BW_full.RData")
+m1 <- model_full2_BW_full_1
+m2 <- model_full2_BW_full_2
+m3 <- model_full2_BW_full_3
+
+gelman.diag(list(m1$Sol[,1],m2$Sol[,1],m3$Sol[,1])) #The shrink factors should be below 1.05
+gelman.diag(list(m1$VCV[,c(1,2)],m2$VCV[,c(1,2)],m3$VCV[,c(1,2)]))
+gelman.diag(list(m1$Deviance,m2$Deviance,m3$Deviance))
+#check chain autocorrelation
+autocorr(m1$Sol[,c(4)])
+autocorr(m1$VCV[,c(1:2)])
+autocorr(m2$Sol[,c(4)])
+autocorr(m2$VCV[,c(1:2)])
+autocorr(m3$Sol[,c(4)])
+autocorr(m3$VCV[,c(1:2)])
+#extract and summarise DIC
+print(c(m1$DIC,m2$DIC,m3$DIC))
+mean(c(m1$DIC, m2$DIC, m3$DIC)) 
+range(c(m1$DIC, m2$DIC, m3$DIC))  
+
+chosen <- m3
+
+plot(chosen)
+summary(chosen)
+
+### heterogeneity and variances
+WI <- na.omit(1/data$Bodyweight_Hd_Var_adj) 
+s2I <- sum(WI*(length(WI)-1))/(sum(WI)^2-sum(WI^2)) # typical sampling (measurement) error variance (sigma2m)
+total_var <- chosen$VCV[,"Study_ID"]+chosen$VCV[,"Strain"]+chosen$VCV[,"units"]+s2I # total variance (sigma2t)
+total_het <- (total_var-s2I)/total_var # total heterogeneity I2
+#for pasting into Excel table
+Study_ID <- round(c(summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Study_ID"]/total_var)*100),1)
+Strain <- round(c(summary(chosen$VCV[,"Strain"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Strain"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Strain"]/total_var)*100),1)
+units <- round(c(summary(chosen$VCV[,"units"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"units"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"units"]/total_var)*100),1)
+total <- round(c(summary(total_het)$statistics[1]*100,summary(total_het)$statistics[2]*100,posterior.mode(total_het)*100),1)
+res_df <- t(data.frame(Study_ID=Study_ID,Strain=Strain,units=units,total=total))
+# version with mean and range for DIC
+res_df <- format(res_df, nsmall = 2)
+DICs <- c(m1$DIC, m2$DIC, m3$DIC)
+DICmean <- format(round(mean(DICs),2), nsmall = 2)
+DICrange <- paste0(format(round(range(DICs)[1],2), nsmall = 2)," - ",format(round(range(DICs)[2],2), nsmall = 2))
+res_df <- t(c(paste0(DICmean, "(", DICrange, ")"),
+            paste0(res_df[1,1],"(",res_df[1,2],")[",res_df[1,3],"]"),
+            paste0(res_df[2,1],"(",res_df[2,2],")[",res_df[2,3],"]"),
+            paste0(res_df[3,1],"(",res_df[3,2],")[",res_df[3,3],"]"),
+            paste0(res_df[4,1],"(",res_df[4,2],")[",res_df[4,3],"]")))
+colnames(res_df) <- c("DIC (DIC range)","I2study","I2strain","I2residual","I2total")
+rownames(res_df) <- "mean(SD)[mode]"
+write.csv(res_df,"results_table_model_full2_BW_full.csv")
+
+### fixed effects (moderators)
+#posterior.mode(chosen$Sol)[1:8]  
+#summary(chosen$Sol[,1:8])$statistics[,1]   
+#HPDinterval(chosen$Sol[,1:8])
+mod <- posterior.mode(chosen$Sol)[1:8]
+av <- summary(chosen$Sol[,1:8])$statistics[,1]
+sd <- summary(chosen$Sol[,1:8])$statistics[,2]
+HPDlo <- HPDinterval(chosen$Sol[,1:8])[,1]
+HPDhi <- HPDinterval(chosen$Sol[,1:8])[,2]
+res_df <- data.frame(Mode=mod,Mean=av,SD=sd,Lower=HPDlo,Upper=HPDhi)
+res_df <- res_df[c(1,3,2,4:8),] #reorder moderators
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Offspr. female (interc.)","Offspr. male (interc.)","Offspr. both sex (interc.)","Choice-chow dam diet (diff.)","Dam diet during lactation (diff.)","Offspr. diet E","Offspr diet P:NP","Offspr. age" )
+write.table(t(c("Fixed effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_full2_BW_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_full2_BW_full.csv", sep=",", col.names = FALSE, append = TRUE)
+
+### random effects
+Mode <- posterior.mode(chosen$VCV)
+Mean <- summary(chosen$VCV)$statistics[,1]
+SD <- summary(chosen$VCV)$statistics[,2]
+Lower <- HPDinterval(chosen$VCV)[,1]
+Upper <- HPDinterval(chosen$VCV)[,2]
+res_df <- data.frame(Mode=Mode,Mean=Mean,SD=SD,Lower=Lower,Upper=Upper)
+res_df <- res_df[-3,]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Study_ID","Strain","residuals")
+write.table(t(c("Random effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_full2_BW_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_full2_BW_full.csv", sep=",", col.names = FALSE, append = TRUE)
+```
+
+Table.
+```{r full2 model BW full data table, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table <- read.table("results_table_model_full2_BW_full.csv", sep=",")
+#table
+kable(table, digits = 3)
+```
+
+
+# BW - Null model for the chow data subset.
+
+Define chow data subset variables.
+```{r BW chow data, echo=FALSE, eval=TRUE, include=FALSE}
+d <- data_NC$Bodyweight_Hd
+vofd <- data_NC$Bodyweight_Hd_Var_adj
+m_NC <- Bodyweight_matrix_NC
+AinvG_NC <- solve(m_NC)
+AnivG_NC <- as(AinvG_NC,"dgCMatrix")
+```
+
+Run models.
+```{r null model BW chow data, echo=FALSE, eval=FALSE, include=FALSE}
+#prior3 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+##test runs - with VCV matrix
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior3)
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+#prior4 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=1,alpha.mu=0,alpha.V=1000),G2=list(V=1,nu=1,alpha.mu=0,alpha.V=1000),G3=list(V=1,fix=1))) #parameter expanded prior with AnivG
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior4)
+#summary(m0.0)
+#plot(m0.0)
+
+##long runs
+prior3 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+model_null_BW_chow_1 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_null_BW_chow_2 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_null_BW_chow_3 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+save(model_null_BW_chow_1,model_null_BW_chow_2,model_null_BW_chow_3,file="model_null_BW_chow.RData") 
+```
+
+Get results.
+```{r null model BW chow data results, echo=FALSE, eval=TRUE, include=FALSE}
+load("model_null_BW_chow.RData")
+m1 <- model_null_BW_chow_1
+m2 <- model_null_BW_chow_2
+m3 <- model_null_BW_chow_3
+
+#check model convergence
+gelman.diag(list(m1$Sol[,1],m2$Sol[,1],m3$Sol[,1])) #The shrink factors should be below 1.05
+gelman.diag(list(m1$VCV[,c(1,2)],m2$VCV[,c(1,2)],m3$VCV[,c(1,2)]))
+gelman.diag(list(m1$Deviance,m2$Deviance,m3$Deviance))
+#check chain autocorrelation
+autocorr(m1$Sol[,c(4)])
+autocorr(m1$VCV[,c(1:2)])
+autocorr(m2$Sol[,c(4)])
+autocorr(m2$VCV[,c(1:2)])
+autocorr(m3$Sol[,c(4)])
+autocorr(m3$VCV[,c(1:2)])
+#extract and summarise DIC
+print(c(m1$DIC,m2$DIC,m3$DIC))
+mean(c(m1$DIC, m2$DIC, m3$DIC)) 
+range(c(m1$DIC, m2$DIC, m3$DIC))  
+
+chosen <- m1
+
+plot(chosen)
+summary(chosen)
+
+### heterogeneity and variances
+WI <- na.omit(1/data_NC$Bodyweight_Hd_Var_adj) 
+s2I <- sum(WI*(length(WI)-1))/(sum(WI)^2-sum(WI^2)) # typical sampling (measurement) error variance (sigma2m)
+total_var <- chosen$VCV[,"Study_ID"]+chosen$VCV[,"Strain"]+chosen$VCV[,"units"]+s2I # total variance (sigma2t)
+total_het <- (total_var-s2I)/total_var # total heterogeneity I2
+#for pasting into Excel table
+Study_ID <- round(c(summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Study_ID"]/total_var)*100),1)
+Strain <- round(c(summary(chosen$VCV[,"Strain"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Strain"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Strain"]/total_var)*100),1)
+units <- round(c(summary(chosen$VCV[,"units"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"units"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"units"]/total_var)*100),1)
+total <- round(c(summary(total_het)$statistics[1]*100,summary(total_het)$statistics[2]*100,posterior.mode(total_het)*100),1)
+res_df <- t(data.frame(Study_ID=Study_ID,Strain=Strain,units=units,total=total))
+# version with mean and range for DIC
+res_df <- format(res_df, nsmall = 2)
+DICs <- c(m1$DIC, m2$DIC, m3$DIC)
+DICmean <- format(round(mean(DICs),2), nsmall = 2)
+DICrange <- paste0(format(round(range(DICs)[1],2), nsmall = 2)," - ",format(round(range(DICs)[2],2), nsmall = 2))
+res_df <- t(c(paste0(DICmean, "(", DICrange, ")"),
+            paste0(res_df[1,1],"(",res_df[1,2],")[",res_df[1,3],"]"),
+            paste0(res_df[2,1],"(",res_df[2,2],")[",res_df[2,3],"]"),
+            paste0(res_df[3,1],"(",res_df[3,2],")[",res_df[3,3],"]"),
+            paste0(res_df[4,1],"(",res_df[4,2],")[",res_df[4,3],"]")))
+colnames(res_df) <- c("DIC (DIC range)","I2study","I2strain","I2residual","I2total")
+rownames(res_df) <- "mean(SD)[mode]"
+write.csv(res_df,"results_table_model_null_BW_chow.csv")
+
+### fixed effects (overall intercept)
+interc <- c(posterior.mode(chosen$Sol[,1]),summary(chosen$Sol[,1])$statistics[1],summary(chosen$Sol)$statistics[2],HPDinterval(chosen$Sol[,1])[1],HPDinterval(chosen$Sol[,1])[2])
+interc <- as.data.frame(t(interc))
+rownames(interc) <- c("intercept")
+write.table(t(c("Fixed effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_null_BW_chow.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(round(interc,3),"results_table_model_null_BW_chow.csv", sep=",", col.names = FALSE, append = TRUE)
+
+### random effects
+Mode <- posterior.mode(chosen$VCV)
+Mean <- summary(chosen$VCV)$statistics[,1]
+SD <- summary(chosen$VCV)$statistics[,2]
+Lower <- HPDinterval(chosen$VCV)[,1]
+Upper <- HPDinterval(chosen$VCV)[,2]
+res_df <- data.frame(Mode=Mode,Mean=Mean,SD=SD,Lower=Lower,Upper=Upper)
+res_df <- res_df[-(dim(res_df)[1]-1),]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Study_ID","Strain","residuals")
+write.table(t(c("Random effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_null_BW_chow.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_null_BW_chow.csv", sep=",", col.names = FALSE, append = TRUE)
+```
+
+Table.
+```{r null model BW chow data table, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table <- read.table("results_table_model_null_BW_chow.csv", sep=",")
+#table
+kable(table, digits = 3)
+```
+
+# BW - Strain model for the chow data subset.
+
+Run models.
+```{r strain model BW chow data, echo=FALSE, eval=FALSE, include=FALSE}
+prior3s <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+
+##test runs - with VCV matrix
+#m0.0 <- MCMCglmm(d~Strain-1,random=~Study_ID+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior3s)
+#prior4 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=1,alpha.mu=0,alpha.V=1000),G2=list(V=1,nu=1,alpha.mu=0,alpha.V=1000),G3=list(V=1,fix=1))) #parameter expanded prior with AnivG
+#m0.0 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior4)
+#summary(m0.0)
+
+##long runs
+model_strain_BW_chow_1 <- MCMCglmm(d~Strain-1,random=~Study_ID+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3s)
+model_strain_BW_chow_2 <- MCMCglmm(d~Strain-1,random=~Study_ID+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3s)
+model_strain_BW_chow_3 <- MCMCglmm(d~Strain-1,random=~Study_ID+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3s)
+save(model_strain_BW_chow_1,model_strain_BW_chow_2,model_strain_BW_chow_3,file="model_strain_BW_chow.RData") 
+```
+
+Get results.
+```{r strain model BW chow data results, echo=FALSE, eval=TRUE, include=FALSE}
+load("model_strain_BW_chow.RData")
+m1 <- model_strain_BW_chow_1
+m2 <- model_strain_BW_chow_2
+m3 <- model_strain_BW_chow_3
+
+#check model convergence
+gelman.diag(list(m1$Sol[,1],m2$Sol[,1],m3$Sol[,1])) #The shrink factors should be below 1.05
+gelman.diag(list(m1$VCV[,c(1,3)],m2$VCV[,c(1,3)],m3$VCV[,c(1,3)])) 
+gelman.diag(list(m1$Deviance,m2$Deviance,m3$Deviance))
+#check chain autocorrelation
+autocorr(m1$Sol[,c(2)])
+autocorr(m1$VCV[,c(1)])
+autocorr(m2$Sol[,c(2)])
+autocorr(m2$VCV[,c(1)])
+autocorr(m3$Sol[,c(2)])
+autocorr(m3$VCV[,c(1)])
+#extract and summarise DIC
+print(c(m1$DIC,m2$DIC,m3$DIC))
+mean(c(m1$DIC, m2$DIC, m3$DIC)) 
+range(c(m1$DIC, m2$DIC, m3$DIC))  
+
+chosen <- m2
+
+plot(chosen)
+summary(chosen)
+
+### heterogeneity and variances
+WI <- na.omit(1/data_NC$Bodyweight_Hd_Var_adj) 
+s2I <- sum(WI*(length(WI)-1))/(sum(WI)^2-sum(WI^2)) # typical sampling (measurement) error variance (sigma2m)
+total_var <- chosen$VCV[,"Study_ID"]+chosen$VCV[,"units"]+s2I # total variance (sigma2t)
+total_het <- (total_var-s2I)/total_var # total heterogeneity I2
+#for pasting into Excel table
+Study_ID <- round(c(summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Study_ID"]/total_var)*100),1)
+units <- round(c(summary(chosen$VCV[,"units"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"units"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"units"]/total_var)*100),1)
+total <- round(c(summary(total_het)$statistics[1]*100,summary(total_het)$statistics[2]*100,posterior.mode(total_het)*100),1)
+res_df <- t(data.frame(Study_ID=Study_ID,units=units,total=total))
+# version with mean and range for DIC
+res_df <- format(res_df, nsmall = 2)
+DICs <- c(m1$DIC, m2$DIC, m3$DIC)
+DICmean <- format(round(mean(DICs),2), nsmall = 2)
+DICrange <- paste0(format(round(range(DICs)[1],2), nsmall = 2)," - ",format(round(range(DICs)[2],2), nsmall = 2))
+res_df <- t(c(paste0(DICmean, "(", DICrange, ")"),
+            paste0(res_df[1,1],"(",res_df[1,2],")[",res_df[1,3],"]"),
+            paste0(res_df[2,1],"(",res_df[2,2],")[",res_df[2,3],"]"),
+            paste0(res_df[3,1],"(",res_df[3,2],")[",res_df[3,3],"]"), " "))
+colnames(res_df) <- c("DIC (DIC range)","I2study","I2residual","I2total", " ")
+rownames(res_df) <- "mean(SD)[mode]"
+write.csv(res_df,"results_table_model_strain_BW_chow.csv")
+
+### fixed effects (8 strains)
+#posterior.mode(chosen$Sol)[1:8]  
+#summary(chosen$Sol[,1:8])$statistics[,1]   
+#HPDinterval(chosen$Sol[,1:8])
+mod <- posterior.mode(chosen$Sol)[1:8]
+av <- summary(chosen$Sol[,1:8])$statistics[,1]
+sd <- summary(chosen$Sol[,1:8])$statistics[,2]
+HPDlo <- HPDinterval(chosen$Sol[,1:8])[,1]
+HPDhi <- HPDinterval(chosen$Sol[,1:8])[,2]
+res_df <- data.frame(Mode=mod,Mean=av,SD=sd,Lower=HPDlo,Upper=HPDhi)
+res_df <- res_df[c(7,8,5,1,2,4,3,6),] #reorder strains
+res_df <- round(res_df,3)
+rownames(res_df) <- c("rat Sprague-Dawley","rat Wistar","rat Long-Evans","mouse C57BL/6","mouse C57BL/6J","mouse ICR","mouse FVB","mouse NMRI" )
+write.table(t(c("Fixed effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_strain_BW_chow.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_strain_BW_chow.csv", sep=",", col.names = FALSE, append = TRUE)
+
+# random effects
+#posterior.mode(chosen$VCV) #mode
+#summary(chosen$VCV) #mean, SD
+#HPDinterval(chosen$VCV) #HPD interval
+Mode <- posterior.mode(chosen$VCV)
+Mean <- summary(chosen$VCV)$statistics[,1]
+SD <- summary(chosen$VCV)$statistics[,2]
+Lower <- HPDinterval(chosen$VCV)[,1]
+Upper <- HPDinterval(chosen$VCV)[,2]
+res_df <- data.frame(Mode=Mode,Mean=Mean,SD=SD,Lower=Lower,Upper=Upper)
+res_df <- res_df[-(dim(res_df)[1]-1),]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Study_ID","residuals")
+write.table(t(c("Random effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_strain_BW_chow.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_strain_BW_chow.csv", sep=",", col.names = FALSE, append = TRUE)
+```
+
+Table.
+```{r strain model BW chow data table, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table <- read.table("results_table_model_strain_BW_chow.csv", sep=",")
+#table
+kable(table, digits = 3)
+```
+
+# BW - full1 model for the chow data subset (with diet stat and end dates)
+
+Run models.
+```{r full1 model BW chow data, echo=FALSE, eval=FALSE, include=FALSE}
+prior3 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+
+#test run
+#m0.0 <- MCMCglmm(d~factor(Offspr_sex)+Z_Dam_diet_start+Z_Dam_diet_end+Z_Dam_diet_exp_E+Z_Dam_diet_exp_PNP_kcal+Z_TBodyweight_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior3)
+#summary(m0.0)
+
+#long runs
+model_full1_BW_chow_1 <- MCMCglmm(d~factor(Offspr_sex)+Z_Dam_diet_start+Z_Dam_diet_end+Z_Dam_diet_exp_E+Z_Dam_diet_exp_PNP_kcal+Z_TBodyweight_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_full1_BW_chow_2 <- MCMCglmm(d~factor(Offspr_sex)+Z_Dam_diet_start+Z_Dam_diet_end+Z_Dam_diet_exp_E+Z_Dam_diet_exp_PNP_kcal+Z_TBodyweight_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_full1_BW_chow_3 <- MCMCglmm(d~factor(Offspr_sex)+Z_Dam_diet_start+Z_Dam_diet_end+Z_Dam_diet_exp_E+Z_Dam_diet_exp_PNP_kcal+Z_TBodyweight_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+save(model_full1_BW_chow_1,model_full1_BW_chow_2,model_full1_BW_chow_3,file="model_full1_BW_chow.RData") 
+```
+
+Get results.
+```{r full1 model BW chow data results, echo=FALSE, eval=TRUE, include=FALSE}
+load("model_full1_BW_chow.RData")
+m1 <- model_full1_BW_chow_1
+m2 <- model_full1_BW_chow_2
+m3 <- model_full1_BW_chow_3
+
+gelman.diag(list(m1$Sol[,1],m2$Sol[,1],m3$Sol[,1])) #The shrink factors should be below 1.05
+gelman.diag(list(m1$VCV[,c(1,2)],m2$VCV[,c(1,2)],m3$VCV[,c(1,2)]))
+gelman.diag(list(m1$Deviance,m2$Deviance,m3$Deviance))
+#check chain autocorrelation
+autocorr(m1$Sol[,c(4)])
+autocorr(m1$VCV[,c(1:2)])
+autocorr(m2$Sol[,c(4)])
+autocorr(m2$VCV[,c(1:2)])
+autocorr(m3$Sol[,c(4)])
+autocorr(m3$VCV[,c(1:2)])
+#extract and summarise DIC
+print(c(m1$DIC,m2$DIC,m3$DIC))
+mean(c(m1$DIC, m2$DIC, m3$DIC)) 
+range(c(m1$DIC, m2$DIC, m3$DIC))  
+
+chosen <- m2
+
+plot(chosen)
+summary(chosen)
+
+### heterogeneity and variances
+WI <- na.omit(1/data_NC$Bodyweight_Hd_Var_adj) 
+s2I <- sum(WI*(length(WI)-1))/(sum(WI)^2-sum(WI^2)) # typical sampling (measurement) error variance (sigma2m)
+total_var <- chosen$VCV[,"Study_ID"]+chosen$VCV[,"Strain"]+chosen$VCV[,"units"]+s2I # total variance (sigma2t)
+total_het <- (total_var-s2I)/total_var # total heterogeneity I2
+#for pasting into Excel table
+Study_ID <- round(c(summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Study_ID"]/total_var)*100),1)
+Strain <- round(c(summary(chosen$VCV[,"Strain"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Strain"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Strain"]/total_var)*100),1)
+units <- round(c(summary(chosen$VCV[,"units"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"units"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"units"]/total_var)*100),1)
+total <- round(c(summary(total_het)$statistics[1]*100,summary(total_het)$statistics[2]*100,posterior.mode(total_het)*100),1)
+res_df <- t(data.frame(Study_ID=Study_ID,Strain=Strain,units=units,total=total))
+# version with mean and range for DIC
+res_df <- format(res_df, nsmall = 2)
+DICs <- c(m1$DIC, m2$DIC, m3$DIC)
+DICmean <- format(round(mean(DICs),2), nsmall = 2)
+DICrange <- paste0(format(round(range(DICs)[1],2), nsmall = 2)," - ",format(round(range(DICs)[2],2), nsmall = 2))
+res_df <- t(c(paste0(DICmean, "(", DICrange, ")"),
+            paste0(res_df[1,1],"(",res_df[1,2],")[",res_df[1,3],"]"),
+            paste0(res_df[2,1],"(",res_df[2,2],")[",res_df[2,3],"]"),
+            paste0(res_df[3,1],"(",res_df[3,2],")[",res_df[3,3],"]"),
+            paste0(res_df[4,1],"(",res_df[4,2],")[",res_df[4,3],"]")))
+colnames(res_df) <- c("DIC (DIC range)","I2study","I2strain","I2residual","I2total")
+rownames(res_df) <- "mean(SD)[mode]"
+write.csv(res_df,"results_table_model_full1_BW_chow.csv")
+
+### fixed effects (moderators)
+#posterior.mode(chosen$Sol)[1:7]  
+#summary(chosen$Sol[,1:7])$statistics[,1]   
+#HPDinterval(chosen$Sol[,1:7])
+mod <- posterior.mode(chosen$Sol)[1:7]
+av <- summary(chosen$Sol[,1:7])$statistics[,1]
+sd <- summary(chosen$Sol[,1:7])$statistics[,2]
+HPDlo <- HPDinterval(chosen$Sol[,1:7])[,1]
+HPDhi <- HPDinterval(chosen$Sol[,1:7])[,2]
+res_df <- data.frame(Mode=mod,Mean=av,SD=sd,Lower=HPDlo,Upper=HPDhi)
+#res_df <- res_df[-(dim(res_df)[1]-1),]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Offspr. female (interc.)","Offspr. male (interc.)","Dam diet start time","Dam diet end time","Dam diet E","Dam diet P:NP","Offspr. age" )
+write.table(t(c("Fixed effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_full1_BW_chow.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_full1_BW_chow.csv", sep=",", col.names = FALSE, append = TRUE)
+
+### random effects
+Mode <- posterior.mode(chosen$VCV)
+Mean <- summary(chosen$VCV)$statistics[,1]
+SD <- summary(chosen$VCV)$statistics[,2]
+Lower <- HPDinterval(chosen$VCV)[,1]
+Upper <- HPDinterval(chosen$VCV)[,2]
+res_df <- data.frame(Mode=Mode,Mean=Mean,SD=SD,Lower=Lower,Upper=Upper)
+res_df <- res_df[-3,]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Study_ID","Strain","residuals")
+write.table(t(c("Random effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_full1_BW_chow.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_full1_BW_chow.csv", sep=",", col.names = FALSE, append = TRUE)
+```
+
+Table.
+```{r full1 model BW chow data table, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table <- read.table("results_table_model_full1_BW_full.csv", sep=",")
+#table
+kable(table, digits = 3)
+```
+
+# BW - full2 model for the chow data subset (timing of the diet as categorical variable: lactation included or not)
+
+Run models.
+```{r full2 model BW chow data, echo=FALSE, eval=FALSE, include=FALSE}
+prior3 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+
+#test run
+#m0.0 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_diet_lactation_incl)+Z_Dam_diet_exp_E+Z_Dam_diet_exp_PNP_kcal+Z_TBodyweight_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=44000,thin=40,burnin=4000,pr=T,prior=prior3)
+#summary(m0.0)
+
+#long runs
+model_full2_BW_chow_1 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_diet_lactation_incl)+Z_Dam_diet_exp_E+Z_Dam_diet_exp_PNP_kcal+Z_TBodyweight_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_full2_BW_chow_2 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_diet_lactation_incl)+Z_Dam_diet_exp_E+Z_Dam_diet_exp_PNP_kcal+Z_TBodyweight_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_full2_BW_chow_3 <- MCMCglmm(d~factor(Offspr_sex)+factor(Dam_diet_lactation_incl)+Z_Dam_diet_exp_E+Z_Dam_diet_exp_PNP_kcal+Z_TBodyweight_age_dPC-1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data_NC,ginverse=list(ES_ID=AnivG_NC), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+save(model_full2_BW_chow_1,model_full2_BW_chow_2,model_full2_BW_chow_3,file="model_full2_BW_chow.RData") 
+```
+
+Get results.
+```{r full2 model BW chow data results, echo=FALSE, eval=TRUE, include=FALSE}
+load("model_full2_BW_chow.RData")
+m1 <- model_full2_BW_chow_1
+m2 <- model_full2_BW_chow_2
+m3 <- model_full2_BW_chow_3
+
+gelman.diag(list(m1$Sol[,1],m2$Sol[,1],m3$Sol[,1])) #The shrink factors should be below 1.05
+gelman.diag(list(m1$VCV[,c(1,2)],m2$VCV[,c(1,2)],m3$VCV[,c(1,2)]))
+gelman.diag(list(m1$Deviance,m2$Deviance,m3$Deviance))
+#check chain autocorrelation
+autocorr(m1$Sol[,c(4)])
+autocorr(m1$VCV[,c(1:2)])
+autocorr(m2$Sol[,c(4)])
+autocorr(m2$VCV[,c(1:2)])
+autocorr(m3$Sol[,c(4)])
+autocorr(m3$VCV[,c(1:2)])
+#extract and summarise DIC
+print(c(m1$DIC,m2$DIC,m3$DIC))
+mean(c(m1$DIC, m2$DIC, m3$DIC)) 
+range(c(m1$DIC, m2$DIC, m3$DIC))  
+
+chosen <- m3
+
+plot(chosen)
+summary(chosen)
+
+### heterogeneity and variances
+WI <- na.omit(1/data_NC$Bodyweight_Hd_Var_adj) 
+s2I <- sum(WI*(length(WI)-1))/(sum(WI)^2-sum(WI^2)) # typical sampling (measurement) error variance (sigma2m)
+total_var <- chosen$VCV[,"Study_ID"]+chosen$VCV[,"Strain"]+chosen$VCV[,"units"]+s2I # total variance (sigma2t)
+total_het <- (total_var-s2I)/total_var # total heterogeneity I2
+#for pasting into Excel table
+Study_ID <- round(c(summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Study_ID"]/total_var)*100),1)
+Strain <- round(c(summary(chosen$VCV[,"Strain"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Strain"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Strain"]/total_var)*100),1)
+units <- round(c(summary(chosen$VCV[,"units"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"units"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"units"]/total_var)*100),1)
+total <- round(c(summary(total_het)$statistics[1]*100,summary(total_het)$statistics[2]*100,posterior.mode(total_het)*100),1)
+res_df <- t(data.frame(Study_ID=Study_ID,Strain=Strain,units=units,total=total))
+# version with mean and range for DIC
+res_df <- format(res_df, nsmall = 2)
+DICs <- c(m1$DIC, m2$DIC, m3$DIC)
+DICmean <- format(round(mean(DICs),2), nsmall = 2)
+DICrange <- paste0(format(round(range(DICs)[1],2), nsmall = 2)," - ",format(round(range(DICs)[2],2), nsmall = 2))
+res_df <- t(c(paste0(DICmean, "(", DICrange, ")"),
+            paste0(res_df[1,1],"(",res_df[1,2],")[",res_df[1,3],"]"),
+            paste0(res_df[2,1],"(",res_df[2,2],")[",res_df[2,3],"]"),
+            paste0(res_df[3,1],"(",res_df[3,2],")[",res_df[3,3],"]"),
+            paste0(res_df[4,1],"(",res_df[4,2],")[",res_df[4,3],"]")))
+colnames(res_df) <- c("DIC (DIC range)","I2study","I2strain","I2residual","I2total")
+rownames(res_df) <- "mean(SD)[mode]"
+write.csv(res_df,"results_table_model_full2_BW_chow.csv")
+
+### fixed effects (moderators)
+#posterior.mode(chosen$Sol)[1:6]  
+#summary(chosen$Sol[,1:6])$statistics[,1]   
+#HPDinterval(chosen$Sol[,1:6])
+mod <- posterior.mode(chosen$Sol)[1:6]
+av <- summary(chosen$Sol[,1:6])$statistics[,1]
+sd <- summary(chosen$Sol[,1:6])$statistics[,2]
+HPDlo <- HPDinterval(chosen$Sol[,1:6])[,1]
+HPDhi <- HPDinterval(chosen$Sol[,1:6])[,2]
+res_df <- data.frame(Mode=mod,Mean=av,SD=sd,Lower=HPDlo,Upper=HPDhi)
+#res_df <- res_df[c(1,3,2,4:6),] #reorder moderators
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Offspr. female (interc.)","Offspr. male (interc.)","Dam diet during lactation (diff.)","Dam diet E","Dam diet P:NP","Offspr. age" )
+write.table(t(c("Fixed effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_full2_BW_chow.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_full2_BW_chow.csv", sep=",", col.names = FALSE, append = TRUE)
+
+### random effects
+Mode <- posterior.mode(chosen$VCV)
+Mean <- summary(chosen$VCV)$statistics[,1]
+SD <- summary(chosen$VCV)$statistics[,2]
+Lower <- HPDinterval(chosen$VCV)[,1]
+Upper <- HPDinterval(chosen$VCV)[,2]
+res_df <- data.frame(Mode=Mode,Mean=Mean,SD=SD,Lower=Lower,Upper=Upper)
+res_df <- res_df[-3,]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Study_ID","Strain","residuals")
+write.table(t(c("Random effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_full2_BW_chow.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_full2_BW_chow.csv", sep=",", col.names = FALSE, append = TRUE)
+```
+
+Table.
+```{r full2 model BW chow data table, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table <- read.table("results_table_model_full2_BW_chow.csv", sep=",")
+#table
+kable(table, digits = 3)
+```
+
+
+COMBINE MODEL AND RESULTS TABLES FOR EACH DATA SET
+--------------------------------------------------
+
+```{r load all results tables, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table_null_RI2_full <- read.table("results_table_model_null_RI2_full.csv", sep=",")
+table_strain_RI2_full <- read.table("results_table_model_strain_RI2_full.csv", sep=",")
+table_full1_RI2_full <- read.table("results_table_model_full1_RI2_full.csv", sep=",")
+table_full2_RI2_full <- read.table("results_table_model_full2_RI2_full.csv", sep=",")
+
+table_null_RI2_chow <- read.table("results_table_model_null_RI2_chow.csv", sep=",")
+table_strain_RI2_chow <- read.table("results_table_model_strain_RI2_chow.csv", sep=",")
+table_full1_RI2_chow <- read.table("results_table_model_full1_RI2_chow.csv", sep=",")
+table_full2_RI2_chow <- read.table("results_table_model_full2_RI2_chow.csv", sep=",")
+
+table_null_BW_full <- read.table("results_table_model_null_BW_full.csv", sep=",")
+table_strain_BW_full <- read.table("results_table_model_strain_BW_full.csv", sep=",")
+table_full1_BW_full <- read.table("results_table_model_full1_BW_full.csv", sep=",")
+table_full2_BW_full <- read.table("results_table_model_full2_BW_full.csv", sep=",")
+
+table_null_BW_chow <- read.table("results_table_model_null_BW_chow.csv", sep=",")
+table_strain_BW_chow <- read.table("results_table_model_strain_BW_chow.csv", sep=",")
+table_full1_BW_chow <- read.table("results_table_model_full1_BW_chow.csv", sep=",")
+table_full2_BW_chow <- read.table("results_table_model_full2_BW_chow.csv", sep=",")
+```
+
+Test results tables for RI2_full analyses only
+```{r test combine results tables, eval=FALSE, echo=FALSE, include=FALSE, message=FALSE, results='asis'}
+#options(stringsAsFactors = FALSE) #does not seem to work
+
+#RI2_full stats table
+heter_table <- table_null_RI2_full[1:2,2:6]
+heter_table <- rbind(heter_table, table_strain_RI2_full[2,2:6])
+heter_table <- rbind(heter_table, table_full1_RI2_full[2,2:6])
+heter_table <- rbind(heter_table, table_full2_RI2_full[2,2:6])
+colnames(heter_table) <- c("DIC","I2study","I2strain","I2residual","I2total")
+heter_table <- data.frame(lapply(heter_table, as.character), stringsAsFactors=FALSE)
+heter_table[2,5] <- heter_table[2,4]
+heter_table[2,4] <- heter_table[2,3]
+heter_table[2,3] <- "-"
+params_table <- data.frame(Data = c("Data",rep("RI2_full",4)), Model = c("Model","1(null)", "2(strain)", "2(full)", "4(full alt.)"), FixedEffects = c("Fixed Effects","Intercept","Strain","Offspr. sex, Choice dam diet, Dam diet start time, Dam diet end time, Offspr. diet E, Offspr diet P:NP, Offspr. age","Offspr. sex, Choice dam diet, Dam diet during lactation, Offspr. diet E,   Offspr diet P:NP, Offspr. age"), RandomEffects = c("Random Effects","Study, Strain","Strain","Study, Strain","Study, Strain"))
+ph_table <- cbind(params_table, heter_table) 
+
+##RI2_full stats table
+stats_table <- table_null_RI2_full[3:4,]
+stats_table <- rbind(stats_table, table_strain_RI2_full[3:11,])
+stats_table <- rbind(stats_table, table_full1_RI2_full[3:12,])
+stats_table <- rbind(stats_table, table_full2_RI2_full[3:11,])
+stats_table <- rbind(stats_table, table_null_RI2_full[5:8,])
+stats_table <- rbind(stats_table, table_strain_RI2_full[12:14,])
+stats_table <- rbind(stats_table, table_full1_RI2_full[13:16,])
+stats_table <- rbind(stats_table, table_full2_RI2_full[12:15,])
+dim(stats_table)
+stats_table
+stats_table <- cbind(Model = c("1(null)"," ","2(strain)",rep(" ", 8),"2(full)",rep(" ", 9),"4(full alt.)", rep(" ", 8),"1(null)", rep(" ", 3),"2(strain)", rep(" ", 2), "2(full)", rep(" ", 3), "4(full alt.)", rep(" ", 3)), stats_table)
+stats_table <- cbind(Data = rep("RI2_full", nrow(stats_table)), stats_table)
+stats_table
+```
+
+Models tables for all analyses
+
+```{r all combine models tables, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+#RI2_full models table
+heter_table <- table_null_RI2_full[1:2,2:6]
+heter_table <- rbind(heter_table, table_strain_RI2_full[2,2:6])
+heter_table <- rbind(heter_table, table_full1_RI2_full[2,2:6])
+heter_table <- rbind(heter_table, table_full2_RI2_full[2,2:6])
+colnames(heter_table) <- c("DIC","I2study","I2strain","I2residual","I2total")
+heter_table <- data.frame(lapply(heter_table, as.character), stringsAsFactors=FALSE)
+heter_table[3,5] <- heter_table[3,4]
+heter_table[3,4] <- heter_table[3,3]
+heter_table[3,3] <- "-"
+params_table <- data.frame(Data = c("Data",rep("RI2_full",4)), Model = c("Model","1(null)", "2(strain)", "2(full)", "4(full alt.)"), FixedEffects = c("Fixed Effects","Intercept","Strain","Offspr. sex, Choice dam diet, Dam diet start time, Dam diet end time, Offspr. diet E, Offspr. diet P:NP, Offspr. age","Offspr. sex, Choice dam diet, Dam diet during lactation, Offspr. diet E, Offspr. diet P:NP, Offspr. age"), RandomEffects = c("Random Effects","Study, Strain","Strain","Study, Strain","Study, Strain"))
+join_table <- cbind(params_table, heter_table) 
+models_table <- join_table
+
+#RI2_chow models table
+heter_table <- table_null_RI2_chow[1:2,2:6]
+heter_table <- rbind(heter_table, table_strain_RI2_chow[2,2:6])
+heter_table <- rbind(heter_table, table_full1_RI2_chow[2,2:6])
+heter_table <- rbind(heter_table, table_full2_RI2_chow[2,2:6])
+colnames(heter_table) <- c("DIC","I2study","I2strain","I2residual","I2total")
+heter_table <- data.frame(lapply(heter_table, as.character), stringsAsFactors=FALSE)
+heter_table[3,5] <- heter_table[3,4]
+heter_table[3,4] <- heter_table[3,3]
+heter_table[3,3] <- "-"
+params_table <- data.frame(Data = c("Data",rep("RI2_chow",4)), Model = c("Model","1(null)", "2(strain)", "2(full)", "4(full alt.)"), FixedEffects = c("Fixed Effects","Intercept","Strain","Offspr. sex, Dam diet start time, Dam diet end time, Dam diet E, Dam diet P:NP, Offspr. age","Offspr. sex, Dam diet during lactation, Dam diet E, Dam diet P:NP, Offspr. age"), RandomEffects = c("Random Effects","Study, Strain","Strain","Study, Strain","Study, Strain"))
+join_table <- cbind(params_table, heter_table) 
+models_table <- rbind(models_table, join_table)
+
+#BW_full models table
+heter_table <- table_null_BW_full[1:2,2:6]
+heter_table <- rbind(heter_table, table_strain_BW_full[2,2:6])
+heter_table <- rbind(heter_table, table_full1_BW_full[2,2:6])
+heter_table <- rbind(heter_table, table_full2_BW_full[2,2:6])
+colnames(heter_table) <- c("DIC","I2study","I2strain","I2residual","I2total")
+heter_table <- data.frame(lapply(heter_table, as.character), stringsAsFactors=FALSE)
+heter_table[3,5] <- heter_table[3,4]
+heter_table[3,4] <- heter_table[3,3]
+heter_table[3,3] <- "-"
+params_table <- data.frame(Data = c("Data",rep("BW_full",4)), Model = c("Model","1(null)", "2(strain)", "2(full)", "4(full alt.)"), FixedEffects = c("Fixed Effects","Intercept","Strain","Offspr. sex, Choice dam diet, Dam diet start time, Dam diet end time, Offspr. diet E, Offspr. diet P:NP, Offspr. age","Offspr. sex, Choice dam diet, Dam diet during lactation, Offspr. diet E, Offspr. diet P:NP, Offspr. age"), RandomEffects = c("Random Effects","Study, Strain","Strain","Study, Strain","Study, Strain"))
+join_table <- cbind(params_table, heter_table) 
+models_table <- rbind(models_table, join_table)
+
+#BW_chow models table
+heter_table <- table_null_BW_chow[1:2,2:6]
+heter_table <- rbind(heter_table, table_strain_BW_chow[2,2:6])
+heter_table <- rbind(heter_table, table_full1_BW_chow[2,2:6])
+heter_table <- rbind(heter_table, table_full2_BW_chow[2,2:6])
+colnames(heter_table) <- c("DIC","I2study","I2strain","I2residual","I2total")
+heter_table <- data.frame(lapply(heter_table, as.character), stringsAsFactors=FALSE)
+heter_table[3,5] <- heter_table[3,4]
+heter_table[3,4] <- heter_table[3,3]
+heter_table[3,3] <- "-"
+params_table <- data.frame(Data = c("Data",rep("BW_chow",4)), Model = c("Model","1(null)", "2(strain)", "2(full)", "4(full alt.)"), FixedEffects = c("Fixed Effects","Intercept","Strain","Offspr. sex, Dam diet start time, Dam diet end time, Dam diet E, Dam diet P:NP, Offspr. age","Offspr. sex, Dam diet during lactation, Dam diet E, Dam diet P:NP, Offspr. age"), RandomEffects = c("Random Effects","Study, Strain","Strain","Study, Strain","Study, Strain"))
+join_table <- cbind(params_table, heter_table) 
+models_table <- rbind(models_table, join_table)
+#models_table
+write.csv(models_table, "models_table.csv")
+```
+
+Summary (stats) tables for all analyses
+
+```{r all combine stats tables, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+##RI2_full stats table
+stats_table <- table_null_RI2_full[3:4,]
+stats_table <- rbind(stats_table, table_strain_RI2_full[4:11,])
+stats_table <- rbind(stats_table, table_full1_RI2_full[4:12,])
+stats_table <- rbind(stats_table, table_full2_RI2_full[4:11,])
+stats_table <- rbind(stats_table, table_null_RI2_full[6:8,])
+stats_table <- rbind(stats_table, table_strain_RI2_full[13:14,])
+stats_table <- rbind(stats_table, table_full1_RI2_full[14:16,])
+stats_table <- rbind(stats_table, table_full2_RI2_full[13:15,])
+stats_table <- cbind(Model = c(" ", "1 (null)","2 (strain)",rep(" ", 7),"3 (full)",rep(" ", 8),"4 (full-alternative)", rep(" ", 7),"1 (null)", rep(" ", 2),"2 (strain)", rep(" ", 1), "3 (full)", rep(" ", 2), "4 (full-alternative)", rep(" ", 2)), stats_table)
+join_table <- cbind(Data = c(" ", "Food Intake – full data set",rep(" ", nrow(stats_table)-2)), stats_table)
+results_table <- join_table
+
+##RI2_chow stats table
+stats_table <- table_null_RI2_chow[4,]
+stats_table <- rbind(stats_table, table_strain_RI2_chow[4:11,])
+stats_table <- rbind(stats_table, table_full1_RI2_chow[4:10,])
+stats_table <- rbind(stats_table, table_full2_RI2_chow[4:9,])
+stats_table <- rbind(stats_table, table_null_RI2_chow[6:8,])
+stats_table <- rbind(stats_table, table_strain_RI2_chow[13:14,])
+stats_table <- rbind(stats_table, table_full1_RI2_chow[12:14,])
+stats_table <- rbind(stats_table, table_full2_RI2_chow[11:13,])
+stats_table <- cbind(Model = c("1 (null)","2 (strain)",rep(" ", 7),"3 (full)",rep(" ", 6),"4 (full-alternative)", rep(" ", 5),"1 (null)", rep(" ", 2),"2(strain)", rep(" ", 1), "3 (full)", rep(" ", 2), "4 (full-alternative)", rep(" ", 2)), stats_table)
+join_table <- cbind(Data = c("Food Intake – chow data subset",rep(" ", nrow(stats_table)-1)), stats_table)
+results_table <- rbind(results_table, join_table)
+
+##BW_full stats table
+stats_table <- table_null_BW_full[4,]
+stats_table <- rbind(stats_table, table_strain_BW_full[4:11,])
+stats_table <- rbind(stats_table, table_full1_BW_full[4:12,])
+stats_table <- rbind(stats_table, table_full2_BW_full[4:11,])
+stats_table <- rbind(stats_table, table_null_BW_full[6:8,])
+stats_table <- rbind(stats_table, table_strain_BW_full[13:14,])
+stats_table <- rbind(stats_table, table_full1_BW_full[14:16,])
+stats_table <- rbind(stats_table, table_full2_BW_full[13:15,])
+stats_table <- cbind(Model = c("1 (null)","2 (strain)",rep(" ", 7),"3 (full)",rep(" ", 8),"4(full-alternative)", rep(" ", 7),"1 (null)", rep(" ", 2),"2 (strain)", rep(" ", 1), "3 (full)", rep(" ", 2), "4(full-alternative)", rep(" ", 2)), stats_table)
+join_table <- cbind(Data = c("Body Mass – full data set",rep(" ", nrow(stats_table)-1)), stats_table)
+results_table <- rbind(results_table, join_table)
+
+##BW_chow stats table
+stats_table <- table_null_BW_chow[4,]
+stats_table <- rbind(stats_table, table_strain_BW_chow[4:11,])
+stats_table <- rbind(stats_table, table_full1_BW_chow[4:10,])
+stats_table <- rbind(stats_table, table_full2_BW_chow[4:9,])
+stats_table <- rbind(stats_table, table_null_BW_chow[6:8,])
+stats_table <- rbind(stats_table, table_strain_BW_chow[13:14,])
+stats_table <- rbind(stats_table, table_full1_BW_chow[12:14,])
+stats_table <- rbind(stats_table, table_full2_BW_chow[11:13,])
+stats_table <- cbind(Model = c("1 (null)","2 (strain)",rep(" ", 7),"3 (full)",rep(" ", 6),"4 (full-alternative)", rep(" ", 5),"1 (null)", rep(" ", 2),"2 (strain)", rep(" ", 1), "3 (full)", rep(" ", 2), "4 (full-alternative)", rep(" ", 2)), stats_table)
+join_table <- cbind(Data = c("Body Mass – chow data subset",rep(" ", nrow(stats_table)-1)), stats_table)
+results_table <- rbind(results_table, join_table)
+
+dim(results_table)
+results_table
+
+write.csv(results_table, "results_table.csv")
+```
+
+##### ADDITIONAL ANALYSES
+
+Offspring absolute food intake (AI)
+-----------------------------------------------------
+
+Calculate adjusted Hd variance values for experiments with shared control group.  
+
+```{r AI shared controls adj Var, echo=FALSE}
+# calculate variance of Hd adjusted for shared control 
+data$AbsIntake_Hd_Var_adj <- 1/data$AbsIntake_N_exp + 1/data$AbsIntake_N_contr + data$AbsIntake_Hd^2/(2*data$AbsIntake_N_total)
+# use normal variance of Hd for non-shared ES, and adjusted version for shared ES
+data$AbsIntake_Hd_Var_combined <- ifelse(data$control_id %in% data$control_id[duplicated(data$control_id)], data$AbsIntake_Hd_Var_combined <- 1/data$AbsIntake_N_exp + 1/data$AbsIntake_N_contr + data$AbsIntake_Hd^2/(2*data$AbsIntake_N_total), data$AbsIntake_Hd_Var_combined <- ((data$AbsIntake_N_contr+data$AbsIntake_N_exp)/(data$AbsIntake_N_contr*data$AbsIntake_N_exp)) + ((data$AbsIntake_Hd^2)/(2*(data$AbsIntake_N_contr+data$AbsIntake_N_exp-2))))
+```
+
+Create variance-covariance matrices for absolute food intake effect sizes 
+
+```{r AI shared controls matrix, echo=FALSE }
+library(Matrix)
+# find start and end coordinates for the subsets
+shared_coord <- which(data$control_id %in% data$control_id[duplicated(data$control_id)]==TRUE)
+#shared_coord
+
+# matrix of combinations of coordinates for each experiment with shared control
+combinations <- do.call("rbind", tapply(shared_coord, data[shared_coord,"control_id"], function(x) t(combn(x,2))))
+#combinations
+
+# create square matrix matching N of ES, filled with zeros
+AbsIntake_matrix <- matrix(0, nrow = dim(data)[1],ncol = dim(data)[1])
+rownames(AbsIntake_matrix) <- data$ES_ID
+colnames(AbsIntake_matrix) <- data$ES_ID
+
+# calculate covariance values between Hd values at the positions in shared_list and place them on the matrix
+for (i in 1:dim(combinations)[1]){
+  p1 <- combinations[i,1]
+  p2 <- combinations[i,2]
+  p1_p2_cov <- 1/data[p1,"AbsIntake_N_contr"] + (data[p1,"AbsIntake_Hd"]*data[p2,"AbsIntake_Hd"]) / (2*data[p1,"AbsIntake_N_total"])
+  AbsIntake_matrix[p1,p2] <- p1_p2_cov
+  AbsIntake_matrix[p2,p1] <- p1_p2_cov
+}
+
+# add the diagonal - use data$AbsIntake_Hd_Var_combined as matrix diagonal
+diag(AbsIntake_matrix) <- data$AbsIntake_Hd_Var_combined
+
+#save the matrices as an R data objects
+save(AbsIntake_matrix, file = "AI_VC_matrix.RData")
+#load(file = "AI_VC_matrix.RData")
+```
+
+Define full dataset variables.
+```{r AI full data, echo=FALSE, eval=TRUE, include=FALSE}
+d <- data$AbsIntake_Hd
+vofd <- data$AbsIntake_Hd_Var_combined
+m <- AbsIntake_matrix
+AinvG <- solve(m)
+AnivG <- as(AinvG,"dgCMatrix")
+```
+
+# AI - Null model for the full data set.
+
+Run models.
+```{r null model AI full data, echo=FALSE, eval=FALSE, include=FALSE}
+##long runs
+prior3 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+model_null_AI_full_1 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_null_AI_full_2 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_null_AI_full_3 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+save(model_null_AI_full_1,model_null_AI_full_2,model_null_AI_full_3,file="model_null_AI_full.RData") 
+```
+
+Get results.
+```{r null model AI full data results, echo=FALSE, eval=TRUE, include=FALSE}
+load("model_null_AI_full.RData")
+m1 <- model_null_AI_full_1
+m2 <- model_null_AI_full_2
+m3 <- model_null_AI_full_3
+
+#check model convergence
+gelman.diag(list(m1$Sol[,1],m2$Sol[,1],m3$Sol[,1])) #The shrink factors should be below 1.05
+gelman.diag(list(m1$VCV[,c(1,2)],m2$VCV[,c(1,2)],m3$VCV[,c(1,2)]))
+gelman.diag(list(m1$Deviance,m2$Deviance,m3$Deviance))
+#check chain autocorrelation
+autocorr(m1$Sol[,c(4)])
+autocorr(m1$VCV[,c(1:2)])
+autocorr(m2$Sol[,c(4)])
+autocorr(m2$VCV[,c(1:2)])
+autocorr(m3$Sol[,c(4)])
+autocorr(m3$VCV[,c(1:2)])
+#extract and summarise DIC
+print(c(m1$DIC,m2$DIC,m3$DIC))
+mean(c(m1$DIC, m2$DIC, m3$DIC)) 
+range(c(m1$DIC, m2$DIC, m3$DIC))  
+
+chosen <- m3
+
+plot(chosen)
+summary(chosen)
+
+### heterogeneity and variances
+WI <- na.omit(1/data$Bodyweight_Hd_Var_adj) 
+s2I <- sum(WI*(length(WI)-1))/(sum(WI)^2-sum(WI^2)) # typical sampling (measurement) error variance (sigma2m)
+total_var <- chosen$VCV[,"Study_ID"]+chosen$VCV[,"Strain"]+chosen$VCV[,"units"]+s2I # total variance (sigma2t)
+total_het <- (total_var-s2I)/total_var # total heterogeneity I2
+#for pasting into Excel table
+Study_ID <- round(c(summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Study_ID"]/total_var)*100),1)
+Strain <- round(c(summary(chosen$VCV[,"Strain"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Strain"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Strain"]/total_var)*100),1)
+units <- round(c(summary(chosen$VCV[,"units"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"units"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"units"]/total_var)*100),1)
+total <- round(c(summary(total_het)$statistics[1]*100,summary(total_het)$statistics[2]*100,posterior.mode(total_het)*100),1)
+res_df <- t(data.frame(Study_ID=Study_ID,Strain=Strain,units=units,total=total))
+# version with mean and range for DIC
+res_df <- format(res_df, nsmall = 2)
+DICs <- c(m1$DIC, m2$DIC, m3$DIC)
+DICmean <- format(round(mean(DICs),2), nsmall = 2)
+DICrange <- paste0(format(round(range(DICs)[1],2), nsmall = 2)," - ",format(round(range(DICs)[2],2), nsmall = 2))
+res_df <- t(c(paste0(DICmean, "(", DICrange, ")"),
+            paste0(res_df[1,1],"(",res_df[1,2],")[",res_df[1,3],"]"),
+            paste0(res_df[2,1],"(",res_df[2,2],")[",res_df[2,3],"]"),
+            paste0(res_df[3,1],"(",res_df[3,2],")[",res_df[3,3],"]"),
+            paste0(res_df[4,1],"(",res_df[4,2],")[",res_df[4,3],"]")))
+colnames(res_df) <- c("DIC (DIC range)","I2study","I2strain","I2residual","I2total")
+rownames(res_df) <- "mean(SD)[mode]"
+write.csv(res_df,"results_table_model_null_AI_full.csv")
+
+### fixed effects (overall intercept)
+interc <- c(posterior.mode(chosen$Sol[,1]),summary(chosen$Sol[,1])$statistics[1],summary(chosen$Sol)$statistics[2],HPDinterval(chosen$Sol[,1])[1],HPDinterval(chosen$Sol[,1])[2])
+interc <- as.data.frame(t(interc))
+rownames(interc) <- c("intercept")
+write.table(t(c("Fixed effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_null_AI_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(round(interc,3),"results_table_model_null_AI_full.csv", sep=",", col.names = FALSE, append = TRUE)
+
+### random effects
+Mode <- posterior.mode(chosen$VCV)
+Mean <- summary(chosen$VCV)$statistics[,1]
+SD <- summary(chosen$VCV)$statistics[,2]
+Lower <- HPDinterval(chosen$VCV)[,1]
+Upper <- HPDinterval(chosen$VCV)[,2]
+res_df <- data.frame(Mode=Mode,Mean=Mean,SD=SD,Lower=Lower,Upper=Upper)
+res_df <- res_df[-(dim(res_df)[1]-1),]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Study_ID","Strain","residuals")
+write.table(t(c("Random effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_null_AI_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_null_AI_full.csv", sep=",", col.names = FALSE, append = TRUE)
+```
+
+Table.
+```{r null model AI full data table, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table <- read.table("results_table_model_null_AI_full.csv", sep=",")
+#table
+kable(table, digits = 3)
+```
+
+
+Offspring linearly-adjusted food intake (RI)
+-----------------------------------------------------
+
+Calculate adjusted Hd variance values for experiments with shared control group.  
+
+```{r RI shared controls adj Var, echo=FALSE}
+# calculate variance of Hd adjusted for shared control 
+data$RelIntake_Hd_Var_adj <- 1/data$AbsIntake_N_exp + 1/data$AbsIntake_N_contr + data$RelIntake_Hd^2/(2*data$AbsIntake_N_total)
+# use normal variance of Hd for non-shared ES, and adjusted version for shared ES
+data$RelIntake_Hd_Var_combined <- ifelse(data$control_id %in% data$control_id[duplicated(data$control_id)], data$RelIntake_Hd_Var_combined <- 1/data$AbsIntake_N_exp + 1/data$AbsIntake_N_contr + data$RelIntake_Hd^2/(2*data$AbsIntake_N_total), data$RelIntake_Hd_Var_combined <- ((data$AbsIntake_N_contr+data$AbsIntake_N_exp)/(data$AbsIntake_N_contr*data$AbsIntake_N_exp)) + ((data$RelIntake_Hd^2)/(2*(data$AbsIntake_N_contr+data$AbsIntake_N_exp-2))))
+```
+
+Create variance-covariance matrices for absolute food intake effect sizes 
+
+```{r RI shared controls matrix, echo=FALSE }
+library(Matrix)
+# find start and end coordinates for the subsets
+shared_coord <- which(data$control_id %in% data$control_id[duplicated(data$control_id)]==TRUE)
+#shared_coord
+
+# matrix of combinations of coordinates for each experiment with shared control
+combinations <- do.call("rbind", tapply(shared_coord, data[shared_coord,"control_id"], function(x) t(combn(x,2))))
+#combinations
+
+# create square matrix matching N of ES, filled with zeros
+RelIntake_matrix <- matrix(0, nrow = dim(data)[1],ncol = dim(data)[1])
+rownames(RelIntake_matrix) <- data$ES_ID
+colnames(RelIntake_matrix) <- data$ES_ID
+
+# calculate covariance values between Hd values at the positions in shared_list and place them on the matrix
+for (i in 1:dim(combinations)[1]){
+  p1 <- combinations[i,1]
+  p2 <- combinations[i,2]
+  p1_p2_cov <- 1/data[p1,"RelIntake_N_contr"] + (data[p1,"RelIntake_Hd"]*data[p2,"RelIntake_Hd"]) / (2*data[p1,"AbsIntake_N_total"])
+  RelIntake_matrix[p1,p2] <- p1_p2_cov
+  RelIntake_matrix[p2,p1] <- p1_p2_cov
+}
+
+# add the diagonal - use data$RelIntake_Hd_Var_combined as matrix diagonal
+diag(RelIntake_matrix) <- data$RelIntake_Hd_Var_combined
+
+#save the matrices as an R data objects
+save(RelIntake_matrix, file = "RI_VC_matrix.RData")
+#load(file = "RI_VC_matrix.RData")
+```
+
+Define full dataset variables.
+```{r RI full data, echo=FALSE, eval=TRUE, include=FALSE}
+d <- data$RelIntake_Hd
+vofd <- data$RelIntake_Hd_Var_combined
+m <- RelIntake_matrix
+RInvG <- solve(m)
+AnivG <- as(RInvG,"dgCMatrix")
+```
+
+# RI - Null model for the full data set.
+
+Run models.
+```{r null model RI full data, echo=FALSE, eval=FALSE, include=FALSE}
+##long runs
+prior3 <- list(R=list(V=1,nu=.002),G=list(G1=list(V=1,nu=.002),G2=list(V=1,nu=.002),G3=list(V=1,fix=1))) #inverse-Gamma prior with AnivG
+model_null_RI_full_1 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_null_RI_full_2 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+model_null_RI_full_3 <- MCMCglmm(d~1,random=~Study_ID+Strain+ES_ID,family="gaussian",data=data,ginverse=list(ES_ID=AnivG), verbose=T,nitt=1100000,thin=1000,burnin=100000,pr=T,prior=prior3)
+save(model_null_RI_full_1,model_null_RI_full_2,model_null_RI_full_3,file="model_null_RI_full.RData") 
+```
+
+Get results.
+```{r null model RI full data results, echo=FALSE, eval=TRUE, include=FALSE}
+load("model_null_RI_full.RData")
+m1 <- model_null_RI_full_1
+m2 <- model_null_RI_full_2
+m3 <- model_null_RI_full_3
+
+#check model convergence
+gelman.diag(list(m1$Sol[,1],m2$Sol[,1],m3$Sol[,1])) #The shrink factors should be below 1.05
+gelman.diag(list(m1$VCV[,c(1,2)],m2$VCV[,c(1,2)],m3$VCV[,c(1,2)]))
+gelman.diag(list(m1$Deviance,m2$Deviance,m3$Deviance))
+#check chRIn autocorrelation
+autocorr(m1$Sol[,c(4)])
+autocorr(m1$VCV[,c(1:2)])
+autocorr(m2$Sol[,c(4)])
+autocorr(m2$VCV[,c(1:2)])
+autocorr(m3$Sol[,c(4)])
+autocorr(m3$VCV[,c(1:2)])
+#extract and summarise DIC
+print(c(m1$DIC,m2$DIC,m3$DIC))
+mean(c(m1$DIC, m2$DIC, m3$DIC)) 
+range(c(m1$DIC, m2$DIC, m3$DIC))  
+
+chosen <- m2
+
+plot(chosen)
+summary(chosen)
+
+### heterogeneity and variances
+WI <- na.omit(1/data$Bodyweight_Hd_Var_adj) 
+s2I <- sum(WI*(length(WI)-1))/(sum(WI)^2-sum(WI^2)) # typical sampling (measurement) error variance (sigma2m)
+total_var <- chosen$VCV[,"Study_ID"]+chosen$VCV[,"Strain"]+chosen$VCV[,"units"]+s2I # total variance (sigma2t)
+total_het <- (total_var-s2I)/total_var # total heterogeneity I2
+#for pasting into Excel table
+Study_ID <- round(c(summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Study_ID"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Study_ID"]/total_var)*100),1)
+StrRIn <- round(c(summary(chosen$VCV[,"Strain"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"Strain"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"Strain"]/total_var)*100),1)
+units <- round(c(summary(chosen$VCV[,"units"]/total_var)$statistics[1]*100,summary(chosen$VCV[,"units"]/total_var)$statistics[2]*100,posterior.mode(chosen$VCV[,"units"]/total_var)*100),1)
+total <- round(c(summary(total_het)$statistics[1]*100,summary(total_het)$statistics[2]*100,posterior.mode(total_het)*100),1)
+res_df <- t(data.frame(Study_ID=Study_ID,Strain=Strain,units=units,total=total))
+# version with mean and range for DIC
+res_df <- format(res_df, nsmall = 2)
+DICs <- c(m1$DIC, m2$DIC, m3$DIC)
+DICmean <- format(round(mean(DICs),2), nsmall = 2)
+DICrange <- paste0(format(round(range(DICs)[1],2), nsmall = 2)," - ",format(round(range(DICs)[2],2), nsmall = 2))
+res_df <- t(c(paste0(DICmean, "(", DICrange, ")"),
+            paste0(res_df[1,1],"(",res_df[1,2],")[",res_df[1,3],"]"),
+            paste0(res_df[2,1],"(",res_df[2,2],")[",res_df[2,3],"]"),
+            paste0(res_df[3,1],"(",res_df[3,2],")[",res_df[3,3],"]"),
+            paste0(res_df[4,1],"(",res_df[4,2],")[",res_df[4,3],"]")))
+colnames(res_df) <- c("DIC (DIC range)","I2study","I2strain","I2residual","I2total")
+rownames(res_df) <- "mean(SD)[mode]"
+write.csv(res_df,"results_table_model_null_RI_full.csv")
+
+### fixed effects (overall intercept)
+interc <- c(posterior.mode(chosen$Sol[,1]),summary(chosen$Sol[,1])$statistics[1],summary(chosen$Sol)$statistics[2],HPDinterval(chosen$Sol[,1])[1],HPDinterval(chosen$Sol[,1])[2])
+interc <- as.data.frame(t(interc))
+rownames(interc) <- c("intercept")
+write.table(t(c("Fixed effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_null_RI_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(round(interc,3),"results_table_model_null_RI_full.csv", sep=",", col.names = FALSE, append = TRUE)
+
+### random effects
+Mode <- posterior.mode(chosen$VCV)
+Mean <- summary(chosen$VCV)$statistics[,1]
+SD <- summary(chosen$VCV)$statistics[,2]
+Lower <- HPDinterval(chosen$VCV)[,1]
+Upper <- HPDinterval(chosen$VCV)[,2]
+res_df <- data.frame(Mode=Mode,Mean=Mean,SD=SD,Lower=Lower,Upper=Upper)
+res_df <- res_df[-(dim(res_df)[1]-1),]
+res_df <- format(round(res_df,3), nsmall = 3)
+rownames(res_df) <- c("Study_ID","Strain","residuals")
+write.table(t(c("Random effects","Mode","Mean","SD","Lower","Upper")),"results_table_model_null_RI_full.csv", sep=",", col.names = FALSE, row.names = FALSE, append = TRUE)
+write.table(res_df,"results_table_model_null_RI_full.csv", sep=",", col.names = FALSE, append = TRUE)
+```
+
+Table.
+```{r null model RI full data table, eval=TRUE, echo=FALSE, include=TRUE, message=FALSE, results='asis'}
+table <- read.table("results_table_model_null_RI_full.csv", sep=",")
+#table
+kable(table, digits = 3)
+```
+
+
+
+TO DO NEXT
+----------
+*Publication bias tests
+*final figures for the MS: funnel, forest, bubble plots

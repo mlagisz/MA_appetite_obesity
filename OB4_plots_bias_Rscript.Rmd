@@ -1,0 +1,442 @@
+R script for:
+Transgenerational effects of maternal obesogenic diet on appetite: a meta-analysis  
+========================================================
+
+STEP 6: forest plots, funnel plots and publication bias test
+============================================================
+
+1 - START
+-----------------------------------------
+
+```{r start, echo=FALSE, message=FALSE, eval=TRUE, include=FALSE}
+options(scipen=100)
+#getRversion() #3.1.1
+install.packages(c("ProjectTemplate", "knitr", "MCMCglmm", "metafor", "rmeta", "meta", "xtable",  "arm", "ade4", "psych","orthopolynom"))
+library('ProjectTemplate')
+load.project()
+#project.info$data
+#library(metafor)
+library(MCMCglmm)
+library(knitr)
+library(meta)
+```
+
+
+Create chow diet subset.  (use data=data_chow68 and RelIntake2_matrix_NC as m for analyses!)
+```{r make chow diets subset, echo=FALSE, eval=TRUE, include=FALSE}
+load("data.RData")
+data$Dam_diet_lactation_incl_descr <- ifelse(data$Dam_diet_lactation_incl==0, "lactation excluded","lactation included")
+#create chow diet (no-choice) data subset
+data_chow <- data[data$Dam_choice_diet == "0",] #69 ES
+#data_chow <- subset(data_chow, Dam_choice_diet=="0")
+#data_chow68 <- subset(data_chow, Offspr_sex!="FM") #68 ES - for analyses with offspring sex moderator!
+data_NC <- subset(data_chow, Offspr_sex!="FM") #68 ES - for analyses with offspring sex moderator!
+#write.csv(data_chow,"NM_overfeeding_NCsubset.csv")
+#data_chow <- read.csv("NM_overfeeding_NCsubset.csv")
+```
+
+
+
+2. PUBLICATION BIAS TESTS (Egger's test) and calculating RESIDUALS for the final funnel plot
+--------------------------------------------------------------------------------
+Checking the intercepts of Egger’s regressions performed on the model residuals and measurement errors.
+Evidence for publication bias if the intercept is significantly different from 0.
+
+
+```{r bias, echo=FALSE, message=FALSE}
+
+### RI2 - full1 model for the full data set (with diet stat and end dates)
+
+load("model_full1_RI2_full.RData")
+model <- model_full1_RI2_full_1
+d <- data$RelIntake2_Hd
+vofd <- data$RelIntake2_Hd_Var_combined
+#next 2 lines are modified for the models controlling for shared control groups
+prec <- 1/sqrt(vofd) # Precision = 1/sqrt(V)
+#es <- d - predict(model)
+#new line, based on: Prediction<-predict(metaMC, marginal=~ES_ID) # ES_ID being where you put the matrix
+es <- predict(model, marginal=~ES_ID) 
+zes <- es * prec
+Egger <- MCMCglmm(zes ~ Prec, family="gaussian", data=data.frame(ES = es, Prec = prec), verbose=TRUE, nitt=100000, thin=25, burnin=25000)
+summary(Egger)
+
+#            post.mean  l-95% CI  u-95% CI eff.samp  pMCMC  
+#(Intercept)  0.256101 -0.031908  0.537651     3000 0.0767 . # no publ. bias
+#Prec        -0.002826 -0.129572  0.109277     3000 0.9633 
+
+#save(Egger,file="Egger_full1_RI2_full.RData")
+#load("Egger_full1_RI2_full.RData")
+
+
+### RI2 - full1 model for the chow data set (with diet stat and end dates)
+
+load("model_full1_RI2_chow.RData")
+model <- model_full1_RI2_chow_2
+d <- data_NC$RelIntake2_Hd
+vofd <- data_NC$RelIntake2_Hd_Var_combined
+#next 2 lines are modified for the models controlling for shared control groups
+prec <- 1/sqrt(vofd) # Precision = 1/sqrt(V)
+#es <- d - predict(model)
+#new line, based on: Prediction<-predict(metaMC, marginal=~ES_ID) # ES_ID being where you put the matrix
+es <- predict(model, marginal=~ES_ID) 
+zes <- es * prec
+Egger <- MCMCglmm(zes ~ Prec, family="gaussian", data=data.frame(ES = es, Prec = prec), verbose=TRUE, nitt=100000, thin=25, burnin=25000)
+summary(Egger)
+#            post.mean l-95% CI u-95% CI eff.samp pMCMC  
+#(Intercept)   -0.2437  -0.6944   0.1789     2748 0.285   # no publ. bias
+#Prec           0.2160   0.0433   0.3982     3000 0.022 *
+#plot(Egger)
+#save(Egger,file="Egger_full1_RI2_chow.RData")
+#load("Egger_full1_RI2_chow.RData")
+
+
+### BW - full1 model for the full data set (with diet stat and end dates)
+
+load("model_full1_BW_full.RData")
+model <- model_full1_BW_full_1
+d <- data$Bodyweight_Hd
+vofd <- data$Bodyweight_Hd_Var_combined
+#next 2 lines are modified for the models controlling for shared control groups
+prec <- 1/sqrt(vofd) # Precision = 1/sqrt(V)
+#es <- d - predict(model)
+#new line, based on: Prediction<-predict(metaMC, marginal=~ES_ID) # ES_ID being where you put the matrix
+es <- predict(model, marginal=~ES_ID) 
+zes <- es * prec
+Egger <- MCMCglmm(zes ~ Prec, family="gaussian", data=data.frame(ES = es, Prec = prec), verbose=TRUE, nitt=100000, thin=25, burnin=25000)
+summary(Egger)
+#            post.mean l-95% CI u-95% CI eff.samp pMCMC
+#(Intercept)    3.1778   2.1826   4.2165     3000 <0.0003 *** # publ. bias!
+#Prec          -1.0891  -1.4979  -0.6549     3000 <0.0003 ***
+#plot(Egger)
+#save(Egger,file="Egger_full1_BW_full.RData")
+#load("Egger_full1_BW_full.RData")
+
+
+### BW - full1 model for the chow data set (with diet stat and end dates)
+
+load("model_full1_BW_chow.RData")
+model <- model_full1_BW_chow_2
+d <- data_NC$Bodyweight_Hd
+vofd <- data_NC$Bodyweight_Hd_Var_combined
+#next 2 lines are modified for the models controlling for shared control groups
+prec <- 1/sqrt(vofd) # Precision = 1/sqrt(V)
+#es <- d - predict(model)
+#new line, based on: Prediction<-predict(metaMC, marginal=~ES_ID) # ES_ID being where you put the matrix
+es <- predict(model, marginal=~ES_ID) 
+zes <- es * prec
+Egger <- MCMCglmm(zes ~ Prec, family="gaussian", data=data.frame(ES = es, Prec = prec), verbose=TRUE, nitt=100000, thin=25, burnin=25000)
+summary(Egger)
+#            post.mean l-95% CI u-95% CI eff.samp pMCMC
+#(Intercept)    3.4976   2.0576   4.9417     3000 <0.0003 ***
+#Prec          -1.2217  -1.7893  -0.6409     3000 <0.0003 ***
+#plot(Egger)
+#save(Egger,file="Egger_full1_BW_chow.RData")
+#load("Egger_full1_BW_chow.RData")
+
+```
+
+3. funnel plots on raw data 
+--------------------------------------------------------------------------------
+Raw effect size estimates (difference between prenatally manipulated and control offspring groups; Hedge’s d) plotted against their precision (1/SE)
+Overall postrior (meta-analytic) means are shown as solid lines. 
+Zero effect size is shown as dashed line.
+
+```{r funnels raw, echo=FALSE, message=FALSE}
+#pdf(file="Rplot_4funnels_raw.pdf",width=8,height=7,family="sans",pointsize=10)
+par(mfcol=c(2,2),mar=c(5,4,1,1.75),oma=c(1,0,0,0))
+
+### RI2 - full data set
+meta <- metagen(data$RelIntake2_Hd, sqrt(data$RelIntake2_Hd_Var_combined))
+funnel.meta(meta, yaxis = "invse", xlab="", ylab="Precision (1/SE)", xlim=c(-5,5), ylim=c(0,6), pch=16, level=NULL, comb.fixed=FALSE, comb.random=FALSE, cex=1.2) # contour=c(0.95), col.contour=("lightgrey")
+abline(v=0, lwd=1, lty=2)
+abline(v=0.198, col="black", lwd=1, lty=1)
+title(main = "Food Intake - full data set", adj=0.5)
+
+### RI2 - chow data subset
+meta <- metagen(data_NC$RelIntake2_Hd, sqrt(data_NC$RelIntake2_Hd_Var_combined))
+funnel.meta(meta, yaxis = "invse", xlab=expression("Hedges' "~italic(g)), ylab="Precision (1/SE)", xlim=c(-5,5), ylim=c(0,6), pch=16, level=NULL, comb.fixed=FALSE, comb.random=FALSE, cex=1.2) # contour=c(0.95), col.contour=("lightgrey")
+abline(v=0, lwd=1, lty=2)
+abline(v=0.192, col="black", lwd=1, lty=1)
+title(main = "Food Intake - chow data subset", adj=0.5)
+
+### BW - full data set
+meta <- metagen(data$Bodyweight_Hd, sqrt(data$Bodyweight_Hd_Var_combined))
+funnel.meta(meta, yaxis = "invse", xlab="", ylab="", xlim=c(-5,5), ylim=c(0,6), pch=16, level=NULL, comb.fixed=FALSE, comb.random=FALSE, cex=1.2) # contour=c(0.95), col.contour=("lightgrey")
+abline(v=0, lwd=1, lty=2)
+abline(v=0.591, col="black", lwd=1, lty=1)
+title(main = "Body Mass - full data set", adj=0.5)
+
+### BW - chow data subset
+meta <- metagen(data_NC$Bodyweight_Hd, sqrt(data_NC$Bodyweight_Hd_Var_combined))
+funnel.meta(meta, yaxis = "invse", xlab=expression("Hedges' "~italic(g)), ylab="", xlim=c(-5,5), ylim=c(0,6), pch=16, level=NULL, comb.fixed=FALSE, comb.random=FALSE, cex=1.2) # contour=c(0.95), col.contour=("lightgrey")
+abline(v=0, lwd=1, lty=2)
+abline(v=0.478, col="black", lwd=1, lty=1)
+title(main = "Body Mass - chow data subset", adj=0.5)
+
+#dev.off()
+```
+
+4. funnel plots on residuals from full models 
+--------------------------------------------------------------------------------
+Residual effect sizes from the full model (adjusted for moderators) plotted against their precision (1/SE)
+Zero effect size is shown as dashed line.
+
+```{r funnels residuals, echo=FALSE, message=FALSE}
+#pdf(file="Rplot_4funnels_residuals.pdf",width=8,height=7,family="sans",pointsize=10)
+par(mfcol=c(2,2),mar=c(5,4,1,1.75),oma=c(1,0,0,0))
+
+### RI2 - full data set
+load("model_full1_RI2_full.RData") #load best full model results
+model <- model_full1_RI2_full_1
+#next 2 lines are modified for the models controlling for shared control groups
+prec_sub1 <- 1/sqrt(data$RelIntake2_Hd_Var_combined) # Precision = 1/sqrt(V)
+es_sub1 <- data$RelIntake2_Hd - predict(model)
+zes_sub1 <- es_sub1*prec_sub1
+plot(es_sub1, prec_sub1, xlab="", ylab="Precision (1/SE)", xlim=c(-5,5), ylim=c(0,6), pch=16, cex=1.2)
+#abline(v=0, lwd=1, lty=2)
+abline(v=0, lwd=1, lty=2)
+title(main = "Food Intake - full data set", adj=0.5)
+
+### RI2 - chow data subset
+load("model_full1_RI2_chow.RData") #load best full model results
+model <- model_full1_RI2_chow_2
+#next 2 lines are modified for the models controlling for shared control groups
+prec_sub1 <- 1/sqrt(data_NC$RelIntake2_Hd_Var_combined) # Precision = 1/sqrt(V)
+es_sub1 <- data_NC$RelIntake2_Hd - predict(model)
+zes_sub1 <- es_sub1*prec_sub1
+plot(es_sub1, prec_sub1, xlab=expression("Hedges' "~italic(g)~" (residuals)"), ylab="Precision (1/SE)", xlim=c(-5,5), ylim=c(0,6), pch=16, cex=1.2)
+abline(v=0, lwd=1, lty=2)
+title(main = "Food Intake - chow data subset", adj=0.5)
+
+### BW - full data set
+load("model_full1_BW_full.RData") #load best full model results
+model <- model_full1_BW_full_1
+#next 2 lines are modified for the models controlling for shared control groups
+prec_sub1 <- 1/sqrt(data$Bodyweight_Hd_Var_combined) # Precision = 1/sqrt(V)
+es_sub1 <- data$Bodyweight_Hd - predict(model)
+zes_sub1 <- es_sub1*prec_sub1
+plot(es_sub1, prec_sub1, xlab="", ylab="", xlim=c(-5,5), ylim=c(0,6), pch=16, cex=1.2)
+abline(v=0, lwd=1, lty=2)
+title(main = "Body Mass - full data set", adj=0.5)
+
+### BW - chow data subset
+load("model_full1_BW_chow.RData") #load best full model results
+model <- model_full1_BW_chow_2
+#next 2 lines are modified for the models controlling for shared control groups
+prec_sub1 <- 1/sqrt(data_NC$Bodyweight_Hd_Var_combined) # Precision = 1/sqrt(V)
+es_sub1 <- data_NC$Bodyweight_Hd - predict(model)
+zes_sub1 <- es_sub1*prec_sub1
+plot(es_sub1, prec_sub1, xlab=expression("Hedges' "~italic(g)~" (residuals)"), ylab="", xlim=c(-5,5), ylim=c(0,6), pch=16, cex=1.2)
+abline(v=0, lwd=1, lty=2)
+title(main = "Body Mass - chow data subset", adj=0.5)
+
+#dev.off()
+```
+
+
+4. forest plots 
+--------------------------------------------------------------------------------
+Zero effect size is shown as dashed line.
+
+
+```{r forest plot}
+#tiff(file="Rplot_forest_plots.tif",width=6.30708661,height=4,res=400,units="in",pointsize=9)
+#pdf(file="Rplot_forest_plots.pdf",width=15,height=10,pointsize=16,family="sans",encoding="CP1250")
+par(mfcol=c(2,2),mar=c(5,10,1,1.75),oma=c(0,1,0,0))
+
+### RI2 - full data set
+load("model_full1_RI2_full.RData") #load best full model results
+model <- model_full1_RI2_full_1
+load("model_null_RI2_full.RData") #load best null model results
+model_null <- model_null_RI2_full_3
+table <- rbind(summary(model)$solutions[,1:3], summary(model_null)$solutions[,1:3]) #add intercept to the full model results
+rownames(table) <- c("Female mean","Mixed-sex mean","Male mean","Dam choice diet (diff. to chow)", "Dam diet start time","Dam diet end time","Offspr. diet energy", "Offspr. diet P:NP","Offspr. age at testing","Meta-analytic (overall) mean")
+table <- as.data.frame(table[nrow(table):0,]) #re-order
+colnames(table) <- c("Mean","Lower","Upper") #change colnames
+table$Signif <- ifelse(table$Lower>0 | table$Upper<0, "*", "") #add column with stars for estimates that significantly differ from zero
+Shape <- c(18,rep(16,dim(table)[1])) #set shape of point estimates 
+Size <- c(1.5,rep(1.2,dim(table)[1])) #set size of point estimates 
+plot(table$Mean, 1:dim(table)[1], ylab=NA, yaxt="n", bty="n", xlim=c(-2,2), ylim=c(0.25, dim(table)[1]+.5),xlab=expression("Hedges' "~italic(g)),pch=Shape,cex=Size,cex.axis=.9) #plot point estimates
+for (i in 1:length(rownames(table))) {  mtext(rownames(table)[i], 2, 0, at=i, las=2, cex=.7) } #add labels
+for (i in 1:length(table$Mean)) {  segments(table$Lower[i], i, table$Upper[i], i, lwd=1.25)  } #add segments
+abline(v=0, lty=3)
+title(main = "Food Intake - full data set", adj = 0.5, cex=1.2)
+
+### RI2 - chow data subset
+load("model_full1_RI2_chow.RData") #load best full model results
+model <- model_full1_RI2_chow_2
+load("model_null_RI2_chow.RData") #load best null model results
+model_null <- model_null_RI2_chow_2
+table <- rbind(summary(model)$solutions[,1:3], summary(model_null)$solutions[,1:3]) #add intercept to the full model results
+rownames(table) <- c("Female mean","Male mean","Dam diet start time","Dam diet end time","Dam diet energy","Dam diet P:NP","Offspr. age at testing","Meta-analytic (overall) mean")
+table <- as.data.frame(table[nrow(table):0,]) #re-order
+colnames(table) <- c("Mean","Lower","Upper") #change colnames
+table$Signif <- ifelse(table$Lower>0 | table$Upper<0, "*", "") #add column with stars for estimates that significantly differ from zero
+Shape <- c(18,rep(16,dim(table)[1])) #set shape of point estimates 
+Size <- c(1.5,rep(1.2,dim(table)[1])) #set size of point estimates 
+plot(table$Mean, 1:dim(table)[1], ylab=NA, yaxt="n", bty="n", xlim=c(-2,2), ylim=c(0.25, dim(table)[1]+.5),xlab=expression("Hedges' "~italic(g)),pch=Shape,cex=Size,cex.axis=.9) #plot point estimates
+for (i in 1:length(rownames(table))) {  mtext(rownames(table)[i], 2, 0, at=i, las=2, cex=.7) } #add labels
+for (i in 1:length(table$Mean)) {  segments(table$Lower[i], i, table$Upper[i], i, lwd=1.25)  } #add segments
+for (i in 1:length(table$Signif)) {  mtext(table$Signif[i], 2, -1, at=i, las=2, cex=1.2)  }    #add stars
+abline(v=0, lty=3)
+title(main = "Food Intake - chow data subset", adj = 0.5, cex=1.2)
+
+### BW - full data set
+load("model_full1_BW_full.RData") #load best full model results
+model <- model_full1_BW_full_1
+load("model_null_BW_full.RData") #load best null model results
+model_null <- model_null_BW_full_2
+table <- rbind(summary(model)$solutions[,1:3], summary(model_null)$solutions[,1:3]) #add intercept to the full model results
+rownames(table) <- c("Female mean","Mixed-sex mean","Male mean","Dam choice diet (diff. to chow)", "Dam diet start time","Dam diet end time","Offspr. diet energy", "Offspr. diet P:NP","Offspr. age at testing","Meta-analytic (overall) mean")
+table <- as.data.frame(table[nrow(table):0,]) #re-order
+colnames(table) <- c("Mean","Lower","Upper") #change colnames
+table$Signif <- ifelse(table$Lower>0 | table$Upper<0, "*", "") #add column with stars for estimates that significantly differ from zero
+Shape <- c(18,rep(16,dim(table)[1])) #set shape of point estimates 
+Size <- c(1.5,rep(1.2,dim(table)[1])) #set size of point estimates 
+plot(table$Mean, 1:dim(table)[1], ylab=NA, yaxt="n", bty="n", xlim=c(-2,2), ylim=c(0.25, dim(table)[1]+.5),xlab=expression("Hedges' "~italic(g)),pch=Shape,cex=Size,cex.axis=.9) #plot point estimates
+for (i in 1:length(rownames(table))) {  mtext(rownames(table)[i], 2, 0, at=i, las=2, cex=.7) } #add labels
+for (i in 1:length(table$Mean)) {  segments(table$Lower[i], i, table$Upper[i], i, lwd=1.25)  } #add segments
+for (i in 1:length(table$Signif)) {  mtext(table$Signif[i], 2, -1, at=i, las=2, cex=1.2)  }    #add stars
+abline(v=0, lty=3)
+title(main = "Body Mass - full data set", adj = 0.5, cex=1.2)
+
+### BW - chow data subset
+load("model_full1_BW_chow.RData") #load best full model results
+model <- model_full1_BW_chow_2
+load("model_null_BW_chow.RData") #load best null model results
+model_null <- model_null_BW_chow_1
+table <- rbind(summary(model)$solutions[,1:3], summary(model_null)$solutions[,1:3]) #add intercept to the full model results
+rownames(table) <- c("Female mean","Male mean","Dam diet start time","Dam diet end time","Dam diet energy","Dam diet P:NP","Offspr. age at testing","Meta-analytic (overall) mean")
+table <- as.data.frame(table[nrow(table):0,]) #re-order
+colnames(table) <- c("Mean","Lower","Upper") #change colnames
+table$Signif <- ifelse(table$Lower>0 | table$Upper<0, "*", "") #add column with stars for estimates that significantly differ from zero
+Shape <- c(18,rep(16,dim(table)[1])) #set shape of point estimates 
+Size <- c(1.5,rep(1.2,dim(table)[1])) #set size of point estimates 
+plot(table$Mean, 1:dim(table)[1], ylab=NA, yaxt="n", bty="n", xlim=c(-2,2), ylim=c(0.25, dim(table)[1]+.5),xlab=expression("Hedges' "~italic(g)),pch=Shape,cex=Size,cex.axis=.9) #plot point estimates
+
+for (i in 1:length(rownames(table))) {  mtext(rownames(table)[i], 2, 0, at=i, las=2, cex=.7) } #add labels
+for (i in 1:length(table$Mean)) {  segments(table$Lower[i], i, table$Upper[i], i, lwd=1.25)  } #add segments
+for (i in 1:length(table$Signif)) {  mtext(table$Signif[i], 2, -1, at=i, las=2, cex=1.2)  }    #add stars
+abline(v=0, lty=3)
+title(main = "Body Mass - chow data subset", adj = 0.5, cex=1.2)
+
+#dev.off()
+```
+
+BW full data set - line, bubble, box plot for dam manipulation timing
+
+```{r plot lines bubblebox timing full, eval=FALSE}
+#tiff(file="Rplot_line_bubble_box_plots_full_BW.tif",width=6.30708661,height=4,res=400,units="in",pointsize=9)
+#pdf(file="Rplot_line_bubble_box_plots_full_BW.pdf",width=15,height=10,pointsize=20,family="sans",encoding="CP1250")
+#par(mfcol=c(1,3),mar=c(5,4,2,1.75),oma=c(0,1,0,0))
+
+#pdf(file="Rplot_line_bubble_box_plots_full_BW_v2.pdf",width=6,height=10,pointsize=20,family="sans",encoding="CP1250")
+par(mfcol=c(3,1),mar=c(5,4,2,1.75),oma=c(0,1,0,0))
+
+### Timing of dam dietary manipulation per study
+dataordered <- data[order(data$Dam_diet_start_exp_dPC,data$Dam_diet_end_exp_dPC),]
+plot(1, type="n", yaxt="n", xlab="Days", ylab="Experiment",xlim=c(-150,60),ylim=c(0,nrow(dataordered)), main="A")
+segments(dataordered$Dam_diet_start_exp_dPC,1:nrow(dataordered),dataordered$Dam_diet_end_exp_dPC,1:nrow(dataordered))
+abline(v=0, lty=3)
+abline(v=22, lty=3)
+abline(v=43, lty=3)
+
+### Effect sizes plotted against end day of dam dietary manipulation
+symbols(data$Dam_diet_end_exp_dPC,data$Bodyweight_Hd,circles=1/data$Bodyweight_Hd_Var,inches=0.2,xlab="Dam manipulation end [day PC]",ylab=expression("Hedges' "~italic(g)),xlim=c(0,60),ylim=c(-4,6),main="B")
+abline(lm(data$Bodyweight_Hd ~ data$Dam_diet_end_exp_dPC, na.action=na.omit), lwd=2)
+
+### Effect sizes in experiments where dam dietary manipulation finished at birth or continued during lactation
+boxplot(Bodyweight_Hd~Dam_diet_lactation_incl_descr,data=data,notch=TRUE,outline=FALSE,main="C",xlab="Dam manipulation ",ylab=expression("Hedges' "~italic(g)),ylim=c(-4,6),main="C")
+
+#dev.off()
+```
+
+BW chow data subset -  bubble plot for dam diet PNP
+
+```{r plot bubble PNP chow, eval=FALSE}
+#tiff(file="Rplot_bubble_PNP_chow_BW.tif",width=6.30708661,height=4,res=400,units="in",pointsize=9)
+#pdf(file="Rplot_bubble_PNP_chow_BW.pdf",width=15,height=10,pointsize=20,family="sans",encoding="CP1250")
+par(mfcol=c(1,1),mar=c(5,4,2,1.75),oma=c(0,1,0,0))
+
+symbols(data_chow$Dam_diet_exp_PNP_kcal,data_chow$Bodyweight_Hd,circles=1/data_chow$Bodyweight_Hd_Var,inches=0.2,xlab="Protein content of obesogenic chow fed to dams [P:NP]",ylab=expression("Hedges' "~italic(g)),xlim=c(0.1,0.35),ylim=c(-4,6))
+abline(lm(data_chow$Bodyweight_Hd ~ data_chow$Dam_diet_exp_PNP_kcal, na.action=na.omit), lwd=2)
+
+#dev.off()
+```
+
+Dam diet properties arrow plots:  
+--------------------------
+# 2 panel plot for dams only (use in the main text) for the chow (no-choice) subset.
+
+```{r diets arrow 2 plots, fig.width=8, fig.height=6, echo=FALSE, eval=TRUE, include=TRUE}
+#pdf(file="Rplot_dam_diets_arrows_chow.pdf",paper="a4",family="sans",pointsize=8)
+#pdf(file="Rplot_dam_diets_arrows_chow.pdf",width=8,height=4,family="sans", pointsize=10)
+
+par(mfrow=c(1,2),mar=c(4,4,1,1.75),oma=c(1,1,0,0))
+
+### PLOT A
+#plot dam diets as percent energy from fat vs. percent energy from carbs, with arrows linking control and experimental dams 
+plot(data_chow$Dam_diet_contr_fatE,data_chow$Dam_diet_contr_carbE,xlim=c(0,100),ylim=c(0,100),xlab="energy from fat [%]",ylab="energy from carbs [%]",main="A") #control diets
+points(data_chow$Dam_diet_exp_fatE,data_chow$Dam_diet_exp_carbE,pch=2) # experimental diets
+#arrows(data_chow$Dam_diet_contr_fatE,data_chow$Dam_diet_contr_carbE,data_chow$Dam_diet_exp_fatE,data_chow$Dam_diet_exp_carbE,length=0.1,lwd=0.2) #change in energy and PNP
+legend("top",legend=c("control dams","experimental dams"), pch=c(1,2),text.width=35, bty="n")
+#text(0, 100, "B", cex=1.5)
+#INTERPRETATION: vertical arrows - energy from fat stays the same, but carbs content changes (isocaloric protein manipulation diets), diagonal arrows - obesogenic diets: fat contribution increases and carbs decreases.
+
+### PLOT B
+#plot dam diets as total energy vs. PNP_ratio, with arrows linking control and experimental dams
+plot(data_chow$Dam_diet_contr_PNP_kcal,data_chow$Dam_diet_contr_E,xlim=c(0,1),ylim=c(2,7),xlab="diet P:NP [kcal/kcal]",ylab="diet energy [kcal/g]", main="B") #control diets
+points(data_chow$Dam_diet_exp_PNP_kcal,data_chow$Dam_diet_exp_E,pch=2 ) # experimental diets 
+#arrows(data_chow$Dam_diet_contr_PNP_kcal,data_chow$Dam_diet_contr_E,data_chow$Dam_diet_exp_PNP_kcal,data_chow$Dam_diet_exp_E,length=0.1,lwd=0.2) #change in energy and PNP
+legend("top",legend=c("control dams","experimental dams"), pch=c(1,2),text.width=0.45, bty="n")
+#text(0, 7, "A", cex=1.5)
+# INTERPRETATION: horizontal arrows - isocaloric protein manipulation diets, other arrows - both calories and protein change
+
+dev.off()
+```
+
+Number of individuals used 
+--------------------------
+```{r calculate N, echo=FALSE, message=FALSE, eval=TRUE, include=FALSE}
+names(data)
+
+# calculate total number of treatment individuals used
+sum(data$RelIntake_N_exp) # 1349
+sum(data$Bodyweight_N_exp) #1507
+
+# calculate total number of contol individuals in the data set if control sharing not taken into account
+sum(data$RelIntake_N_contr) #1372
+sum(data$Bodyweight_N_contr) #1547
+
+# CORRECT total number of contol individuals in the data set controlling for control sharing 
+sum(data[!duplicated( data[,"control_id"]) ,"RelIntake_N_contr" ]) #1119
+sum(data[!duplicated( data[,"control_id"]) ,"Bodyweight_N_contr" ]) #1164
+
+#Total N - food intake
+sum(data$RelIntake_N_exp) + sum(data[!duplicated( data[,"control_id"]) ,"RelIntake_N_contr" ]) #2468 
+#Total N - body weight
+sum(data$Bodyweight_N_exp) + sum(data[!duplicated( data[,"control_id"]) ,"Bodyweight_N_contr" ]) #2671
+```
+
+-------------------
+
+```{r corrBW and RI2, echo=FALSE, message=FALSE, eval=TRUE, include=FALSE}
+names(data)
+hist(data$Bodyweight_Hd)
+hist(data$RelIntake2_Hd)
+cor.test(data$Bodyweight_Hd,data$RelIntake2_Hd) # cor -0.03649179, t = -0.3899, df = 114, p-value = 0.6973 
+#cor.test(rank(data$Bodyweight_Hd),rank(data$RelIntake2_Hd)) # non-sign. negative corr.
+plot(data$Bodyweight_Hd,data$RelIntake2_Hd) #no relationship between diff in BW and diff. in RI2, which means RI2 is well adjusted for diff. in BW!
+abline(lm(data$Bodyweight_Hd~data$RelIntake2_Hd))
+
+cor.test(data$Bodyweight_Hd,data$AbsIntake_Hd) # cor 0.595451, t = 7.9135, df = 114, p-value = 0.00000000000179 
+plot(data$Bodyweight_Hd,data$AbsIntake_Hd) #positive relationship between diff in BW and diff. in AI
+abline(lm(data$Bodyweight_Hd~data$AbsIntake_Hd))
+
+cor.test(data$Bodyweight_mean_contr, data$AbsIntake_mean_contr) # cor 0.7308069 
+cor.test(data$Bodyweight_mean_contr, data$RelIntake2_mean_contr) # cor -0.3413947
+cor.test(data$Bodyweight_mean_exp, data$AbsIntake_mean_exp) # cor 0.6916174  
+cor.test(data$Bodyweight_mean_exp, data$RelIntake2_mean_exp) # cor -0.3333154
+plot(data$Bodyweight_mean_exp, data$AbsIntake_mean_exp) # cor 0.6916174  
+plot(data$Bodyweight_mean_exp, data$RelIntake2_mean_exp) # cor -0.3333154
+```
